@@ -12,6 +12,8 @@
 package aws
 
 import (
+	"github.com/aws/aws-sdk-go/service/eks"
+	"github.com/aws/aws-sdk-go/service/iam"
 	acon "github.com/cloud-barista/cb-spider/cloud-control-manager/cloud-driver/drivers/aws/connect"
 	idrv "github.com/cloud-barista/cb-spider/cloud-control-manager/cloud-driver/interfaces"
 
@@ -111,6 +113,62 @@ func getNLBClient(connectionInfo idrv.ConnectionInfo) (*elbv2.ELBV2, error) {
 	return svc, nil
 }
 
+func getEKSClient(connectionInfo idrv.ConnectionInfo) (*eks.EKS, error) {
+	//func getEKSClient(connectionInfo idrv.ConnectionInfo) (*elb.ELB, error) {
+
+	// setup Region
+	fmt.Println("AwsDriver : getEKSClient() - Region : [" + connectionInfo.RegionInfo.Region + "]")
+	fmt.Println("AwsDriver : getEKSClient() - Zone : [" + connectionInfo.RegionInfo.Zone + "]")
+	//fmt.Println("전달 받은 커넥션 정보")
+	//spew.Dump(connectionInfo)
+
+	sess, err := session.NewSession(&aws.Config{
+		Region: aws.String(connectionInfo.RegionInfo.Region),
+		//Region:      aws.String("ap-northeast-2"),
+		Credentials: credentials.NewStaticCredentials(connectionInfo.CredentialInfo.ClientId, connectionInfo.CredentialInfo.ClientSecret, "")},
+	)
+	if err != nil {
+		fmt.Println("Could not create aws New Session", err)
+		return nil, err
+	}
+
+	svc := eks.New(sess)
+	if err != nil {
+		fmt.Println("Could not create EKS service client", err)
+		return nil, err
+	}
+
+	return svc, nil
+}
+
+func getIAMClient(connectionInfo idrv.ConnectionInfo) (*iam.IAM, error) {
+	//func getEKSClient(connectionInfo idrv.ConnectionInfo) (*elb.ELB, error) {
+
+	// setup Region
+	fmt.Println("AwsDriver : getIAMClient() - Region : [" + connectionInfo.RegionInfo.Region + "]")
+	fmt.Println("AwsDriver : getIAMClient() - Zone : [" + connectionInfo.RegionInfo.Zone + "]")
+	//fmt.Println("전달 받은 커넥션 정보")
+	//spew.Dump(connectionInfo)
+
+	sess, err := session.NewSession(&aws.Config{
+		Region: aws.String(connectionInfo.RegionInfo.Region),
+		//Region:      aws.String("ap-northeast-2"),
+		Credentials: credentials.NewStaticCredentials(connectionInfo.CredentialInfo.ClientId, connectionInfo.CredentialInfo.ClientSecret, "")},
+	)
+	if err != nil {
+		fmt.Println("Could not create aws New Session", err)
+		return nil, err
+	}
+
+	svc := iam.New(sess)
+	if err != nil {
+		fmt.Println("Could not create IAM service client", err)
+		return nil, err
+	}
+
+	return svc, nil
+}
+
 func (driver *AwsDriver) ConnectCloud(connectionInfo idrv.ConnectionInfo) (icon.CloudConnection, error) {
 	// 1. get info of credential and region for Test A Cloud from connectionInfo.
 	// 2. create a client object(or service  object) of Test A Cloud with credential info.
@@ -124,6 +182,9 @@ func (driver *AwsDriver) ConnectCloud(connectionInfo idrv.ConnectionInfo) (icon.
 	//var iConn icon.CloudConnection
 	vmClient, err := getVMClient(connectionInfo)
 	nlbClient, err := getNLBClient(connectionInfo)
+
+	eksClient, err := getEKSClient(connectionInfo)
+	iamClient, err := getIAMClient(connectionInfo)
 	//vmClient, err := getVMClient(connectionInfo.RegionInfo)
 	if err != nil {
 		return nil, err
@@ -143,6 +204,8 @@ func (driver *AwsDriver) ConnectCloud(connectionInfo idrv.ConnectionInfo) (icon.
 		SecurityClient: vmClient,
 		VmSpecClient:   vmClient,
 		NLBClient:      nlbClient,
+		EKSClient:      eksClient,
+		IamClient:      iamClient,
 	}
 
 	return &iConn, nil // return type: (icon.CloudConnection, error)

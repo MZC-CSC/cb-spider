@@ -12,10 +12,9 @@ package main
 
 import (
 	"fmt"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"io/ioutil"
 	"os"
-
-	"github.com/aws/aws-sdk-go/aws/awserr"
 
 	awsdrv "github.com/cloud-barista/cb-spider/cloud-control-manager/cloud-driver/drivers/aws"
 	idrv "github.com/cloud-barista/cb-spider/cloud-control-manager/cloud-driver/interfaces"
@@ -1415,6 +1414,450 @@ func handleNLB() {
 	}
 }
 
+func handleCluster() {
+	cblogger.Debug("Start PMKS Handler Resource Test")
+
+	ResourceHandler, err := getResourceHandler("Cluster")
+	if err != nil {
+		panic(err)
+	}
+	handler := ResourceHandler.(irs.ClusterHandler)
+
+	//IId		IID 	// {NameId, SystemId}
+	//
+	//Version		string	// Kubernetes Version, ex) 1.23.3
+	//
+	//Network		NetworkInfo
+	//NodeGroupList	[]NodeGroupInfo
+	//Addons		AddonsInfo
+	//
+	//
+	//status 		ClusterStatus
+	//
+	//CreatedTime	time.Time
+	//KeyValueList []KeyValue
+
+	//type NetworkInfo struct {
+	//	VpcIID		IID	// {NameId, SystemId}
+	//	SubnetIID	[]IID
+	//	SecurityGroupIIDs []IID
+	//
+	//	KeyValueList []KeyValue
+	//}
+
+	subnets := []irs.IID{}
+	subnets = append(subnets, irs.IID{SystemId: "subnet-262d6d7a"})
+	subnets = append(subnets, irs.IID{SystemId: "subnet-d0ee6fab"})
+
+	clusterReqInfo := irs.ClusterInfo{
+		IId: irs.IID{NameId: "cb-eks-cluster-test01"},
+		//Version : "1.23.3", //K8s version
+		Network: irs.NetworkInfo{
+			VpcIID: irs.IID{SystemId: "vpc-c0479cab"},
+			//SubnetIID: [irs.IID{SystemId: "subnet-262d6d7a"},irs.IID{SystemId: "vpc-c0479cab"}],
+			SubnetIID: subnets,
+		},
+	} // nlbReqInfo
+
+	//------ Cluster Management
+	//CreateCluster(clusterReqInfo ClusterInfo) (ClusterInfo, error)
+	//ListCluster() ([]*ClusterInfo, error)
+	//GetCluster(clusterIID IID) (ClusterInfo, error)
+	//DeleteCluster(clusterIID IID) (bool, error)
+	//
+	//AddNodeGroup(clusterIID IID, nodeGroup IID) (ClusterInfo, error)
+	//RemoveNodeGroup(clusterIID IID, nodeGroup IID) (bool, error)
+	//
+	////------ Upgrade K8S
+	//UpgradeCluster(clusterIID IID, newVersion string) (ClusterInfo, error)
+
+	for {
+		fmt.Println("ClusterHandler Management")
+		fmt.Println("0. Quit")
+		fmt.Println("1. Cluster List")
+		fmt.Println("2. Cluster Create")
+		fmt.Println("3. Cluster Get")
+		fmt.Println("4. Cluster Delete")
+
+		fmt.Println("5. AddNodeGroup")
+		fmt.Println("6. RemoveNodeGroup")
+
+		fmt.Println("7. UpgradeCluster")
+
+		var commandNum int
+		inputCnt, err := fmt.Scan(&commandNum)
+		if err != nil {
+			panic(err)
+		}
+
+		if inputCnt == 1 {
+			switch commandNum {
+			case 0:
+				return
+
+			case 1:
+				result, err := handler.ListCluster()
+				if err != nil {
+					cblogger.Infof(" Cluster 목록 조회 실패 : ", err)
+				} else {
+					cblogger.Info("Cluster 목록 조회 결과")
+					cblogger.Debug(result)
+					cblogger.Infof("로그 레벨 : [%s]", cblog.GetLevel())
+					//spew.Dump(result)
+					cblogger.Info("출력 결과 수 : ", len(result))
+
+					//조회및 삭제 테스트를 위해 리스트의 첫번째 정보의 ID를 요청ID로 자동 갱신함.
+					if result != nil {
+						clusterReqInfo.IId = result[0].IId // 조회 및 삭제를 위해 생성된 ID로 변경
+					}
+				}
+
+				//case 2:
+				//	cblogger.Infof("[%s] NLB 생성 테스트", nlbReqInfo.IId.NameId)
+				//	result, err := handler.CreateNLB(nlbReqInfo)
+				//	if err != nil {
+				//		cblogger.Infof(nlbReqInfo.IId.NameId, " NLB 생성 실패 : ", err)
+				//	} else {
+				//		cblogger.Infof("NLB 생성 성공 : ", result)
+				//		nlbReqInfo.IId = result.IId // 조회 및 삭제를 위해 생성된 ID로 변경
+				//		if cblogger.Level.String() == "debug" {
+				//			spew.Dump(result)
+				//		}
+				//	}
+				//
+				//case 3:
+				//	cblogger.Infof("[%s] NLB 조회 테스트", nlbReqInfo.IId)
+				//	result, err := handler.GetNLB(nlbReqInfo.IId)
+				//	if err != nil {
+				//		cblogger.Infof("[%s] NLB 조회 실패 : ", nlbReqInfo.IId.NameId, err)
+				//	} else {
+				//		cblogger.Infof("[%s] NLB 조회 성공 : [%s]", nlbReqInfo.IId.NameId, result)
+				//		if cblogger.Level.String() == "debug" {
+				//			spew.Dump(result)
+				//		}
+				//	}
+				//
+				//case 4:
+				//	cblogger.Infof("[%s] NLB 삭제 테스트", nlbReqInfo.IId.NameId)
+				//	result, err := handler.DeleteNLB(nlbReqInfo.IId)
+				//	if err != nil {
+				//		cblogger.Infof("[%s] NLB 삭제 실패 : ", nlbReqInfo.IId.NameId, err)
+				//	} else {
+				//		cblogger.Info("성공")
+				//		cblogger.Infof("[%s] NLB 삭제 성공 : [%s]", nlbReqInfo.IId.NameId, result)
+				//	}
+				//
+				//case 5:
+				//	cblogger.Infof("[%s] 리스너 변경 테스트", nlbReqInfo.IId)
+				//	reqListenerInfo := irs.ListenerInfo{
+				//		Protocol: "TCP", // AWS NLB : TCP, TLS, UDP, or TCP_UDP
+				//		//IP: "",
+				//		Port: "80",
+				//	}
+				//	result, err := handler.ChangeListener(nlbReqInfo.IId, reqListenerInfo)
+				//	if err != nil {
+				//		cblogger.Infof("[%s] 리스너 변경 실패 : ", nlbReqInfo.IId.NameId, err)
+				//	} else {
+				//		cblogger.Infof("[%s] 리스너 변경 성공 : [%s]", nlbReqInfo.IId.NameId, result)
+				//		if cblogger.Level.String() == "debug" {
+				//			spew.Dump(result)
+				//		}
+				//	}
+				//
+				//case 7:
+				//	cblogger.Infof("[%s] AddVMs 테스트", nlbReqInfo.IId.NameId)
+				//	cblogger.Info(reqAddVMs)
+				//	result, err := handler.AddVMs(nlbReqInfo.IId, reqAddVMs)
+				//	if err != nil {
+				//		cblogger.Infof("[%s] AddVMs 실패 : ", nlbReqInfo.IId.NameId, err)
+				//	} else {
+				//		cblogger.Info("성공")
+				//		cblogger.Infof("[%s] AddVMs 성공 : [%s]", nlbReqInfo.IId.NameId, result)
+				//	}
+				//
+				//case 8:
+				//	cblogger.Infof("[%s] RemoveVMs 테스트", nlbReqInfo.IId.NameId)
+				//	cblogger.Info(reqRemoveVMs)
+				//	result, err := handler.RemoveVMs(nlbReqInfo.IId, reqRemoveVMs)
+				//	if err != nil {
+				//		cblogger.Infof("[%s] RemoveVMs 실패 : ", nlbReqInfo.IId.NameId, err)
+				//	} else {
+				//		cblogger.Info("성공")
+				//		cblogger.Infof("[%s] RemoveVMs 성공 : [%s]", nlbReqInfo.IId.NameId, result)
+				//	}
+				//
+				//case 9:
+				//	cblogger.Infof("[%s] GetVMGroupHealthInfo 테스트", nlbReqInfo.IId)
+				//	result, err := handler.GetVMGroupHealthInfo(nlbReqInfo.IId)
+				//	if err != nil {
+				//		cblogger.Infof("[%s] GetVMGroupHealthInfo 실패 : ", nlbReqInfo.IId.NameId, err)
+				//	} else {
+				//		cblogger.Infof("[%s] GetVMGroupHealthInfo 성공 : [%s]", nlbReqInfo.IId.NameId, result)
+				//		if cblogger.Level.String() == "debug" {
+				//			spew.Dump(result)
+				//		}
+				//	}
+				//
+				//case 6:
+				//	cblogger.Infof("[%s] NLB VM Group 변경 테스트", nlbReqInfo.IId.NameId)
+				//	result, err := handler.ChangeVMGroupInfo(nlbReqInfo.IId, irs.VMGroupInfo{
+				//		Protocol: "TCP",
+				//		Port:     "8080",
+				//	})
+				//	if err != nil {
+				//		cblogger.Infof("[%s] NLB VM Group 변경 실패 : ", nlbReqInfo.IId.NameId, err)
+				//	} else {
+				//		cblogger.Infof("[%s] NLB VM Group 변경 성공 : [%s]", nlbReqInfo.IId.NameId, result)
+				//		if cblogger.Level.String() == "debug" {
+				//			spew.Dump(result)
+				//		}
+				//	}
+				//case 10:
+				//	cblogger.Infof("[%s] NLB Health Checker 변경 테스트", nlbReqInfo.IId.NameId)
+				//	result, err := handler.ChangeHealthCheckerInfo(nlbReqInfo.IId, irs.HealthCheckerInfo{
+				//		Protocol: "TCP",
+				//		Port:     "22",
+				//		//Interval: 10, //미지원
+				//		//Timeout:   3,	//미지원
+				//		Threshold: 5,
+				//	})
+				//	if err != nil {
+				//		cblogger.Infof("[%s] NLB Health Checker 변경 실패 : ", nlbReqInfo.IId.NameId, err)
+				//	} else {
+				//		cblogger.Infof("[%s] NLB Health Checker 변경 성공 : [%s]", nlbReqInfo.IId.NameId, result)
+				//		if cblogger.Level.String() == "debug" {
+				//			spew.Dump(result)
+				//		}
+				//	}
+			}
+		}
+	}
+}
+
+func handleNodeGroup() {
+	cblogger.Debug("Start Nodegroup Handler Resource Test")
+
+	ResourceHandler, err := getResourceHandler("NodeGroup")
+	if err != nil {
+		panic(err)
+	}
+	handler := ResourceHandler.(irs.NodeGroupHandler)
+
+	//
+	//IId		IID 	// {NameId, SystemId}
+	//
+	//// VM config.
+	//ImageIID	IID
+	//VMSpecName 	string
+	//RootDiskType    string  // "SSD(gp2)", "Premium SSD", ...
+	//RootDiskSize 	string  // "", "default", "50", "1000" (GB)
+	//KeyPairIID 	IID
+	//
+	//// Auto Scaling config.
+	//AutoScaling		bool
+	//MinNumberNodes		int
+	//MaxNumberNodes		int
+	//
+	//DesiredNumberNodes	int
+	//
+	//NodeList	[]IID
+	//KeyValueList []KeyValue
+	//
+
+	//subnets := []irs.IID{}
+	//subnets = append(subnets, irs.IID{SystemId: "subnet-262d6d7a"})
+	//subnets = append(subnets, irs.IID{SystemId: "subnet-d0ee6fab"})
+
+	nodeGroupReqInfo := irs.NodeGroupInfo{
+		//IId: irs.IID{NameId: "cb-eks-nodegroup-test01"},
+	}
+	nodeGroupReqInfo.IId = irs.IID{NameId: "cb-eks-nodegroup-test01", SystemId: "cb-eks-nodegroup-test01"}
+	nodeGroupReqInfo.MaxNumberNodes = 2
+	nodeGroupReqInfo.MinNumberNodes = 1
+	nodeGroupReqInfo.DesiredNumberNodes = 1
+	nodeGroupReqInfo.KeyPairIID = irs.IID{SystemId: "cb-webtool"}
+	nodeGroupReqInfo.RootDiskSize = "20"
+	nodeGroupReqInfo.ImageIID = irs.IID{SystemId: "AL2_x86_64"}
+	nodeGroupReqInfo.VMSpecName = "t3.medium"
+	//nodeGroupReqInfo.NodeList // get에서 사용
+
+	// ---- nodegroup management
+	//ListNodeGroup() ([]*NodeGroupInfo, error)
+	//CreateNodeGroup(nodeGroupReqInfo NodeGroupInfo) (NodeGroupInfo, error)
+	//GetNodeGroup(nodeGroupIID IID) (NodeGroupInfo, error)
+	//DeleteNodeGroup(nodeGroupIID IID) (bool, error)
+	//
+	//AddNodes(nodeGroupIID IID, number int) (NodeGroupInfo, error)
+	//RemoveNodes(nodeGroupIID IID, vmIIDs *[]IID) (bool, error)
+
+	for {
+		fmt.Println("NodeGroupHandler Management")
+		fmt.Println("0. Quit")
+		fmt.Println("1. NodeGroup List")
+		fmt.Println("2. NodeGroup Create")
+		fmt.Println("3. NodeGroup Get")
+		fmt.Println("4. NodeGroup Delete")
+
+		fmt.Println("5. AddNodeGroup")
+		fmt.Println("6. RemoveNodeGroup")
+
+		fmt.Println("7. UpgradeCluster")
+
+		var commandNum int
+		inputCnt, err := fmt.Scan(&commandNum)
+		if err != nil {
+			panic(err)
+		}
+
+		if inputCnt == 1 {
+			switch commandNum {
+			case 0:
+				return
+
+			case 1:
+				clusterIID := irs.IID{NameId: "cb-eks-cluster", SystemId: "cb-eks-cluster"}
+				result, err := handler.ListNodeGroup(clusterIID)
+				if err != nil {
+					cblogger.Infof(" NodeGroup 목록 조회 실패 : ", err)
+				} else {
+					cblogger.Info("NodeGroup 목록 조회 결과")
+					cblogger.Debug(result)
+					cblogger.Infof("로그 레벨 : [%s]", cblog.GetLevel())
+					//spew.Dump(result)
+					cblogger.Info("출력 결과 수 : ", len(result))
+
+					//조회및 삭제 테스트를 위해 리스트의 첫번째 정보의 ID를 요청ID로 자동 갱신함.
+					if result != nil {
+						spew.Dump(result)
+					}
+				}
+
+			case 2:
+				cblogger.Infof("[%s] NodeGroup 생성 테스트", nodeGroupReqInfo.IId.NameId)
+				result, err := handler.CreateNodeGroup(nodeGroupReqInfo)
+				if err != nil {
+					cblogger.Infof(nodeGroupReqInfo.IId.NameId, " NodeGroup 생성 실패 : ", err)
+				} else {
+					cblogger.Infof("NodeGroup 생성 성공 : ", result)
+					if cblogger.Level.String() == "debug" {
+						spew.Dump(result)
+					}
+				}
+
+			case 3:
+				cblogger.Infof("[%s] NodeGroup 조회 테스트", nodeGroupReqInfo.IId)
+				nodeGroupReqInfo.IId.NameId = "cb-eks-nodegroup"
+				nodeGroupReqInfo.IId.SystemId = "cb-eks-nodegroup-test05"
+				//nodeGroupReqInfo.IId.SystemId = "dcc130a9-19a7-daff-c7a9-74e953a0fda1" // max length 100
+				//nodeGroupReqInfo.IId.SystemId = "74c13d82-672e-942c-7ff6-ba0011954112" // 생성후에 NodeGroup의 Arn의 끝자리
+
+				result, err := handler.GetNodeGroup(nodeGroupReqInfo.IId)
+				if err != nil {
+					cblogger.Infof("[%s] NodeGroup 조회 실패 : ", nodeGroupReqInfo.IId.NameId, err)
+				} else {
+					cblogger.Infof("[%s] NodeGroup 조회 성공 : [%s]", nodeGroupReqInfo.IId.NameId, result)
+					if cblogger.Level.String() == "debug" {
+						spew.Dump(result)
+					}
+				}
+				//
+				//case 4:
+				//	cblogger.Infof("[%s] NLB 삭제 테스트", nlbReqInfo.IId.NameId)
+				//	result, err := handler.DeleteNLB(nlbReqInfo.IId)
+				//	if err != nil {
+				//		cblogger.Infof("[%s] NLB 삭제 실패 : ", nlbReqInfo.IId.NameId, err)
+				//	} else {
+				//		cblogger.Info("성공")
+				//		cblogger.Infof("[%s] NLB 삭제 성공 : [%s]", nlbReqInfo.IId.NameId, result)
+				//	}
+				//
+				//case 5:
+				//	cblogger.Infof("[%s] 리스너 변경 테스트", nlbReqInfo.IId)
+				//	reqListenerInfo := irs.ListenerInfo{
+				//		Protocol: "TCP", // AWS NLB : TCP, TLS, UDP, or TCP_UDP
+				//		//IP: "",
+				//		Port: "80",
+				//	}
+				//	result, err := handler.ChangeListener(nlbReqInfo.IId, reqListenerInfo)
+				//	if err != nil {
+				//		cblogger.Infof("[%s] 리스너 변경 실패 : ", nlbReqInfo.IId.NameId, err)
+				//	} else {
+				//		cblogger.Infof("[%s] 리스너 변경 성공 : [%s]", nlbReqInfo.IId.NameId, result)
+				//		if cblogger.Level.String() == "debug" {
+				//			spew.Dump(result)
+				//		}
+				//	}
+				//
+				//case 7:
+				//	cblogger.Infof("[%s] AddVMs 테스트", nlbReqInfo.IId.NameId)
+				//	cblogger.Info(reqAddVMs)
+				//	result, err := handler.AddVMs(nlbReqInfo.IId, reqAddVMs)
+				//	if err != nil {
+				//		cblogger.Infof("[%s] AddVMs 실패 : ", nlbReqInfo.IId.NameId, err)
+				//	} else {
+				//		cblogger.Info("성공")
+				//		cblogger.Infof("[%s] AddVMs 성공 : [%s]", nlbReqInfo.IId.NameId, result)
+				//	}
+				//
+				//case 8:
+				//	cblogger.Infof("[%s] RemoveVMs 테스트", nlbReqInfo.IId.NameId)
+				//	cblogger.Info(reqRemoveVMs)
+				//	result, err := handler.RemoveVMs(nlbReqInfo.IId, reqRemoveVMs)
+				//	if err != nil {
+				//		cblogger.Infof("[%s] RemoveVMs 실패 : ", nlbReqInfo.IId.NameId, err)
+				//	} else {
+				//		cblogger.Info("성공")
+				//		cblogger.Infof("[%s] RemoveVMs 성공 : [%s]", nlbReqInfo.IId.NameId, result)
+				//	}
+				//
+				//case 9:
+				//	cblogger.Infof("[%s] GetVMGroupHealthInfo 테스트", nlbReqInfo.IId)
+				//	result, err := handler.GetVMGroupHealthInfo(nlbReqInfo.IId)
+				//	if err != nil {
+				//		cblogger.Infof("[%s] GetVMGroupHealthInfo 실패 : ", nlbReqInfo.IId.NameId, err)
+				//	} else {
+				//		cblogger.Infof("[%s] GetVMGroupHealthInfo 성공 : [%s]", nlbReqInfo.IId.NameId, result)
+				//		if cblogger.Level.String() == "debug" {
+				//			spew.Dump(result)
+				//		}
+				//	}
+				//
+				//case 6:
+				//	cblogger.Infof("[%s] NLB VM Group 변경 테스트", nlbReqInfo.IId.NameId)
+				//	result, err := handler.ChangeVMGroupInfo(nlbReqInfo.IId, irs.VMGroupInfo{
+				//		Protocol: "TCP",
+				//		Port:     "8080",
+				//	})
+				//	if err != nil {
+				//		cblogger.Infof("[%s] NLB VM Group 변경 실패 : ", nlbReqInfo.IId.NameId, err)
+				//	} else {
+				//		cblogger.Infof("[%s] NLB VM Group 변경 성공 : [%s]", nlbReqInfo.IId.NameId, result)
+				//		if cblogger.Level.String() == "debug" {
+				//			spew.Dump(result)
+				//		}
+				//	}
+				//case 10:
+				//	cblogger.Infof("[%s] NLB Health Checker 변경 테스트", nlbReqInfo.IId.NameId)
+				//	result, err := handler.ChangeHealthCheckerInfo(nlbReqInfo.IId, irs.HealthCheckerInfo{
+				//		Protocol: "TCP",
+				//		Port:     "22",
+				//		//Interval: 10, //미지원
+				//		//Timeout:   3,	//미지원
+				//		Threshold: 5,
+				//	})
+				//	if err != nil {
+				//		cblogger.Infof("[%s] NLB Health Checker 변경 실패 : ", nlbReqInfo.IId.NameId, err)
+				//	} else {
+				//		cblogger.Infof("[%s] NLB Health Checker 변경 성공 : [%s]", nlbReqInfo.IId.NameId, result)
+				//		if cblogger.Level.String() == "debug" {
+				//			spew.Dump(result)
+				//		}
+				//	}
+			}
+		}
+	}
+}
+
 func main() {
 	cblogger.Info("AWS Resource Test")
 	//handleVPC()
@@ -1426,7 +1869,9 @@ func main() {
 	//handleImage() //AMI
 	//handleVNic() //Lancard
 	//handleVMSpec()
-	handleNLB()
+	//handleNLB()
+	//handleCluster()
+	handleNodeGroup()
 }
 
 //handlerType : resources폴더의 xxxHandler.go에서 Handler이전까지의 문자열
@@ -1472,6 +1917,10 @@ func getResourceHandler(handlerType string) (interface{}, error) {
 		resourceHandler, err = cloudConnection.CreateVMSpecHandler()
 	case "NLB":
 		resourceHandler, err = cloudConnection.CreateNLBHandler()
+	case "Cluster":
+		resourceHandler, err = cloudConnection.CreateClusterHandler()
+	case "NodeGroup":
+		resourceHandler, err = cloudConnection.CreateNodeGroupHandler()
 	}
 
 	if err != nil {
@@ -1575,10 +2024,12 @@ func readConfigFile() Config {
 	// Set Environment Value of Project Root Path
 	rootPath := os.Getenv("CBSPIDER_PATH")
 	//rootpath := "D:/Workspace/mcloud-barista-config"
+	rootPath = "/home/nobang/goland/branches/feature_pmks_aws_20220802_yhnoh/cloud-control-manager/cloud-driver/drivers/aws/main"
 	// /mnt/d/Workspace/mcloud-barista-config/config/config.yaml
 	cblogger.Infof("Test Data 설정파일 : [%]", rootPath+"/config/config.yaml")
 
-	data, err := ioutil.ReadFile(rootPath + "/config/config.yaml")
+	//data, err := ioutil.ReadFile(rootPath + "/config/config.yaml")
+	data, err := ioutil.ReadFile(rootPath + "/Sample/config/config.yaml")
 	//data, err := ioutil.ReadFile("D:/Workspace/mcloud-bar-config/config/config.yaml")
 	if err != nil {
 		panic(err)

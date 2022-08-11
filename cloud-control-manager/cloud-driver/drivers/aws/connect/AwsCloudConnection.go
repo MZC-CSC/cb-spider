@@ -11,6 +11,8 @@
 package connect
 
 import (
+	"github.com/aws/aws-sdk-go/service/eks"
+	"github.com/aws/aws-sdk-go/service/iam"
 	cblog "github.com/cloud-barista/cb-log"
 	idrv "github.com/cloud-barista/cb-spider/cloud-control-manager/cloud-driver/interfaces"
 
@@ -41,6 +43,9 @@ type AwsCloudConnection struct {
 
 	//NLBClient *elb.ELB
 	NLBClient *elbv2.ELBV2
+
+	EKSClient *eks.EKS
+	IamClient *iam.IAM
 }
 
 var cblogger *logrus.Logger
@@ -112,5 +117,14 @@ func (cloudConn *AwsCloudConnection) CreateVMSpecHandler() (irs.VMSpecHandler, e
 
 func (cloudConn *AwsCloudConnection) CreateNLBHandler() (irs.NLBHandler, error) {
 	handler := ars.AwsNLBHandler{cloudConn.Region, cloudConn.NLBClient, cloudConn.VMClient}
+	return &handler, nil
+}
+
+func (cloudConn *AwsCloudConnection) CreateClusterHandler() (irs.ClusterHandler, error) {
+	handler := ars.AwsClusterHandler{cloudConn.Region, cloudConn.EKSClient, cloudConn.IamClient}
+	return &handler, nil
+}
+func (cloudConn *AwsCloudConnection) CreateNodeGroupHandler() (irs.NodeGroupHandler, error) {
+	handler := ars.AwsNodeGroupHandler{cloudConn.Region, cloudConn.EKSClient, cloudConn.IamClient, cloudConn.VMClient}
 	return &handler, nil
 }

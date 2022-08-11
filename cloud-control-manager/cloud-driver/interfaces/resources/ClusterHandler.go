@@ -12,69 +12,66 @@ package resources
 
 import "time"
 
-
 //-------- Const
 type ClusterStatus string
 
 const (
-        ClusterCreating ClusterStatus = "Creating"
-        ClusterActive   ClusterStatus = "Active"
-        ClusterInactive   ClusterStatus = "Inactive"
-        ClusterUpdating   ClusterStatus = "Updating"
-        ClusterDeleting   ClusterStatus = "Deleting"
+	ClusterCreating ClusterStatus = "Creating"
+	ClusterActive   ClusterStatus = "Active"
+	ClusterInactive ClusterStatus = "Inactive"
+	ClusterUpdating ClusterStatus = "Updating"
+	ClusterDeleting ClusterStatus = "Deleting"
 )
 
 //-------- Info Structure
 type ClusterInfo struct {
-	IId		IID 	// {NameId, SystemId}
+	IId IID // {NameId, SystemId}
 
-	Version		string	// Kubernetes Version, ex) 1.23.3
+	Version string // Kubernetes Version, ex) 1.23.3
 
-	Network		NetworkInfo
-	NodeGroupList	[]NodeGroupInfo	
-	Addons		AddonsInfo
+	Network       NetworkInfo
+	NodeGroupList []NodeGroupInfo
+	Addons        AddonsInfo
 
-	
-        status 		ClusterStatus
+	status ClusterStatus
 
-	CreatedTime	time.Time
+	CreatedTime  time.Time
 	KeyValueList []KeyValue
 }
 
 type NetworkInfo struct {
-	VpcIID		IID	// {NameId, SystemId}
-	SubnetIID	[]IID	
-        SecurityGroupIIDs []IID
+	VpcIID            IID // {NameId, SystemId}
+	SubnetIID         []IID
+	SecurityGroupIIDs []IID
 
 	KeyValueList []KeyValue
 }
 
 type NodeGroupInfo struct {
-	IId		IID 	// {NameId, SystemId}
+	IId IID // {NameId, SystemId}
 
 	// VM config.
-	ImageIID	IID
-        VMSpecName 	string
-        RootDiskType    string  // "SSD(gp2)", "Premium SSD", ...
-	RootDiskSize 	string  // "", "default", "50", "1000" (GB)
-        KeyPairIID 	IID
+	ImageIID     IID
+	VMSpecName   string
+	RootDiskType string // "SSD(gp2)", "Premium SSD", ...
+	RootDiskSize string // "", "default", "50", "1000" (GB)
+	KeyPairIID   IID
 
 	// Auto Scaling config.
-	AutoScaling		bool
-	MinNumberNodes		int
-	MaxNumberNodes		int
+	AutoScaling    bool
+	MinNumberNodes int
+	MaxNumberNodes int
 
-	DesiredNumberNodes	int
+	DesiredNumberNodes int
 
-	NodeList	[]IID
+	NodeList     []IID
 	KeyValueList []KeyValue
 }
 
 // CNI, DNS, .... @todo
 type AddonsInfo struct {
-        KeyValueList []KeyValue
+	KeyValueList []KeyValue
 }
-
 
 //-------- Cluster API
 type ClusterHandler interface {
@@ -90,18 +87,17 @@ type ClusterHandler interface {
 
 	//------ Upgrade K8S
 	UpgradeCluster(clusterIID IID, newVersion string) (ClusterInfo, error)
-
 }
 
 //-------- NodeGroup API
 type NodeGroupHandler interface {
 
-        //------ NodeGroup Management
-        CreateNodeGroup(nodeGroupReqInfo NodeGroupInfo) (NodeGroupInfo, error)
-        ListNodeGroup() ([]*NodeGroupInfo, error)
-        GetNodeGroup(nodeGroupIID IID) (NodeGroupInfo, error)
-        DeleteNodeGroup(nodeGroupIID IID) (bool, error)
+	//------ NodeGroup Management
+	CreateNodeGroup(nodeGroupReqInfo NodeGroupInfo) (NodeGroupInfo, error)
+	ListNodeGroup(clusterIID IID) ([]*NodeGroupInfo, error)
+	GetNodeGroup(nodeGroupIID IID) (NodeGroupInfo, error)
+	DeleteNodeGroup(nodeGroupIID IID) (bool, error)
 
-        AddNodes(nodeGroupIID IID, number int) (NodeGroupInfo, error)
-        RemoveNodes(nodeGroupIID IID, vmIIDs *[]IID) (bool, error)
+	AddNodes(nodeGroupIID IID, number int) (NodeGroupInfo, error)
+	RemoveNodes(nodeGroupIID IID, vmIIDs *[]IID) (bool, error)
 }
