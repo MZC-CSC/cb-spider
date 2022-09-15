@@ -116,3 +116,14 @@ func (cloudConn *GCPCloudConnection) CreateDiskHandler() (irs.DiskHandler, error
 	diskHandler := gcprs.GCPDiskHandler{Region: cloudConn.Region, Ctx: cloudConn.Ctx, Client: cloudConn.VMClient, Credential: cloudConn.Credential}
 	return &diskHandler, nil
 }
+
+func (cloudConn *GCPCloudConnection) CreateMyImageHandler() (irs.MyImageHandler, error) {
+	cblogger.Info("GCP Cloud Driver: called CreateMyImageHandler()!")
+	myImageHandler := gcprs.GCPMyImageHandler{Region: cloudConn.Region, Ctx: cloudConn.Ctx, Client: cloudConn.VMClient, Credential: cloudConn.Credential}
+	return &myImageHandler, nil
+}
+
+func (cloudConn *GCPCloudConnection) CreateClusterHandler() (irs.ClusterHandler, error) {
+        return nil, errors.New("GCP Driver: not implemented")
+}
+

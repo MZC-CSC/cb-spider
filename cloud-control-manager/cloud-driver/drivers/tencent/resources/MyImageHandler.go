@@ -38,6 +38,7 @@ type TencentMyImageHandler struct {
 }
 
 func (myImageHandler TencentMyImageHandler) SnapshotVM(snapshotReqInfo irs.MyImageInfo) (irs.MyImageInfo, error) {
+
 	existName, errExist := myImageHandler.myImageExist(snapshotReqInfo.IId.NameId)
 	if errExist != nil {
 		cblogger.Error(errExist)
@@ -84,6 +85,7 @@ func (myImageHandler TencentMyImageHandler) SnapshotVM(snapshotReqInfo irs.MyIma
 			ResourceType: common.StringPtr(RESOURCE_TYPE_MYIMAGE),
 			Tags: []*cvm.Tag{
 				{
+
 					Key:   common.StringPtr(IMAGE_TAG_SOURCE_VM),
 					Value: common.StringPtr(snapshotReqInfo.SourceVM.SystemId),
 				},
@@ -93,6 +95,7 @@ func (myImageHandler TencentMyImageHandler) SnapshotVM(snapshotReqInfo irs.MyIma
 
 	// The returned "resp" is an instance of the CreateImageResponse class which corresponds to the request object
 	response, err := myImageHandler.Client.CreateImage(request)
+
 	if err != nil {
 		cblogger.Error(err)
 		return irs.MyImageInfo{}, err
@@ -122,6 +125,7 @@ func (myImageHandler TencentMyImageHandler) ListMyImage() ([]*irs.MyImageInfo, e
 	}
 
 	myImageInfoList := []*irs.MyImageInfo{}
+
 	for _, image := range myImageSet {
 		myImageInfo, myImageInfoErr := convertImageSetToMyImageInfo(image)
 		if myImageInfoErr != nil {
@@ -166,6 +170,7 @@ func (myImageHandler TencentMyImageHandler) DeleteMyImage(myImageIID irs.IID) (b
 
 	// The returned "resp" is an instance of the DeleteImagesResponse class which corresponds to the request object
 	response, err := myImageHandler.Client.DeleteImages(request)
+
 	if err != nil {
 		cblogger.Error(err)
 		return false, err
