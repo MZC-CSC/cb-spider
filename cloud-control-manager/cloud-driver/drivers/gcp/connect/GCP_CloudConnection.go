@@ -12,6 +12,7 @@ package connect
 
 import (
 	"context"
+	"errors"
 
 	cblog "github.com/cloud-barista/cb-log"
 	gcprs "github.com/cloud-barista/cb-spider/cloud-control-manager/cloud-driver/drivers/gcp/resources"
@@ -124,6 +125,5 @@ func (cloudConn *GCPCloudConnection) CreateMyImageHandler() (irs.MyImageHandler,
 }
 
 func (cloudConn *GCPCloudConnection) CreateClusterHandler() (irs.ClusterHandler, error) {
-        return nil, errors.New("GCP Driver: not implemented")
+	return nil, errors.New("GCP Driver: not implemented")
 }
-
