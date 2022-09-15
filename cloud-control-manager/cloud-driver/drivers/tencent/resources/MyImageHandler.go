@@ -47,7 +47,28 @@ func (myImageHandler TencentMyImageHandler) SnapshotVM(snapshotReqInfo irs.MyIma
 		return irs.MyImageInfo{}, errors.New("A MyImage with the name " + snapshotReqInfo.IId.NameId + " already exists.")
 	}
 
+	vmRequest := cvm.NewDescribeInstancesRequest()
 	request := cvm.NewCreateImageRequest()
+
+	vmRequest.InstanceIds = common.StringPtrs([]string{snapshotReqInfo.SourceVM.SystemId})
+
+	vmInfo, vmInfoErr := myImageHandler.Client.DescribeInstances(vmRequest)
+	if vmInfoErr != nil {
+		cblogger.Error(vmInfoErr)
+		return irs.MyImageInfo{}, vmInfoErr
+	}
+
+	dataDiskSet := vmInfo.Response.InstanceSet[0].DataDisks
+	var dataDiskIdList []string
+
+	if len(dataDiskSet) > 0 {
+		for _, dataDisk := range dataDiskSet {
+			dataDiskId := dataDisk.DiskId
+			dataDiskIdList = append(dataDiskIdList, *dataDiskId)
+		}
+
+		request.DataDiskIds = common.StringPtrs(dataDiskIdList)
+	}
 
 	//ImageName        *string `json:"ImageName,omitempty" name:"ImageName"`
 	//InstanceId       *string `json:"InstanceId,omitempty" name:"InstanceId"`
