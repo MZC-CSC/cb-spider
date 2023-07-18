@@ -24,7 +24,7 @@ func (metaInfoHandler *AwsMetainfoHandler) GetAllRegionZone () (*ec2.DescribeAva
 		AllRegions : aws.Bool(true),
 	}
 
-	var availabilityZones []*ec2.DescribeAvailabilityZonesOutput
+	
 
 
 	regionreq, regionresp := metaInfoHandler.Client.DescribeRegionsRequest(Regionsinput)
@@ -33,20 +33,22 @@ func (metaInfoHandler *AwsMetainfoHandler) GetAllRegionZone () (*ec2.DescribeAva
 		return nil, regionerr
 	}
 	fmt.Print(regionresp.Regions)
-	
 
-	Zoneinput := &ec2.DescribeAvailabilityZonesInput{
-		AllAvailabilityZones : aws.Bool(true),
-	}
-	// Zoneinput.SetRegions(resp.Regions) 
+	var availabilityZones []*ec2.DescribeAvailabilityZonesOutput
+	for _, region := range regionresp.Regions {
+		Zoneinput := &ec2.DescribeAvailabilityZonesInput{
+			AllAvailabilityZones : aws.Bool(true),
+		}
+		metaInfoHandler.Client.Client.Config.Region = region.RegionName
 
-	Zonereq, Zoneresp := metaInfoHandler.Client.DescribeAvailabilityZonesRequest(Zoneinput)
-	hiscallInfo.ElapsedTime = call.Elapsed(start)
-	Zoneerr := Zonereq.Send()
-	if Zoneerr != nil {
-		return nil, Zoneerr
+		Zonereq, Zoneresp := metaInfoHandler.Client.DescribeAvailabilityZonesRequest(Zoneinput)
+		hiscallInfo.ElapsedTime = call.Elapsed(start)
+		Zoneerr := Zonereq.Send()
+		if Zoneerr != nil {
+			return nil, Zoneerr
+		}
+		availabilityZones = append(availabilityZones, Zoneresp)
 	}
-	availabilityZones = append(availabilityZones, Zoneresp)
 
 
 
