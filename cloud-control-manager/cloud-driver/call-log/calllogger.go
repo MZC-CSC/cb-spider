@@ -59,6 +59,8 @@ const (
 	MYIMAGE       RES_TYPE = "MYIMAGE"
 	NLB           RES_TYPE = "NETWORKLOADBALANCER"
 
+	METAINFO   	  RES_TYPE = "METAINFO"
+
 	//=========== PMKS: Provider-Managed K8S
 	CLUSTER       RES_TYPE = "CLUSTER"
 )

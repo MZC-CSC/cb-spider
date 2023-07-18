@@ -84,6 +84,34 @@ func getVMClient(connectionInfo idrv.ConnectionInfo) (*ec2.EC2, error) {
 	return svc, nil
 }
 
+func getMetainfoClient(connectionInfo idrv.ConnectionInfo) (*ec2.EC2, error) {
+
+	// setup Region
+	fmt.Println("AwsDriver : getMetainfoClient() - Region : [" + connectionInfo.RegionInfo.Region + "]")
+	fmt.Println("AwsDriver : getMetainfoClient() - Zone : [" + connectionInfo.RegionInfo.Zone + "]")
+	//fmt.Println("전달 받은 커넥션 정보")
+	//spew.Dump(connectionInfo)
+
+	sess, err := session.NewSession(&aws.Config{
+		Region: aws.String(connectionInfo.RegionInfo.Region),
+		//Region:      aws.String("ap-northeast-2"),
+		Credentials: credentials.NewStaticCredentials(connectionInfo.CredentialInfo.ClientId, connectionInfo.CredentialInfo.ClientSecret, "")},
+	)
+	if err != nil {
+		fmt.Println("Could not create aws New Session", err)
+		return nil, err
+	}
+
+	// Create EC2 service client
+	svc := ec2.New(sess)
+	if err != nil {
+		fmt.Println("Could not create EC2 service client", err)
+		return nil, err
+	}
+
+	return svc, nil
+}
+
 // 로드밸런서 처리를 위한 ELB 클라이언트 획득
 func getNLBClient(connectionInfo idrv.ConnectionInfo) (*elbv2.ELBV2, error) {
 	//func getNLBClient(connectionInfo idrv.ConnectionInfo) (*elb.ELB, error) {
@@ -217,6 +245,7 @@ func (driver *AwsDriver) ConnectCloud(connectionInfo idrv.ConnectionInfo) (icon.
 	eksClient, err := getEKSClient(connectionInfo)
 	iamClient, err := getIamClient(connectionInfo)
 	autoScalingClient, err := getAutoScalingClient(connectionInfo)
+	metainfoClient, err := getMetainfoClient(connectionInfo)
 	//vmClient, err := getVMClient(connectionInfo.RegionInfo)
 	if err != nil {
 		return nil, err
@@ -242,6 +271,8 @@ func (driver *AwsDriver) ConnectCloud(connectionInfo idrv.ConnectionInfo) (icon.
 		EKSClient:         eksClient,
 		IamClient:         iamClient,
 		AutoScalingClient: autoScalingClient,
+
+		MetainfoClient: metainfoClient,
 
 		// Connection for AnyCall
 		AnyCallClient: vmClient,

@@ -32,6 +32,8 @@ type CloudConnection interface {
 
 	CreateAnyCallHandler() (irs.AnyCallHandler, error)
 
+	CreateMetainfoHandler() (irs.MetainfoHandler, error)
+
 	IsConnected() (bool, error)
 	Close() error
 }

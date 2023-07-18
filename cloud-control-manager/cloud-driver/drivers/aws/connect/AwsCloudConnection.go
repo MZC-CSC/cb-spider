@@ -53,6 +53,8 @@ type AwsCloudConnection struct {
 	IamClient         *iam.IAM
 	AutoScalingClient *autoscaling.AutoScaling
 
+	MetainfoClient *ec2.EC2
+
 	AnyCallClient *ec2.EC2
 }
 
@@ -159,4 +161,9 @@ func (cloudConn *AwsCloudConnection) CreateClusterHandler() (irs.ClusterHandler,
 func (cloudConn *AwsCloudConnection) CreateAnyCallHandler() (irs.AnyCallHandler, error) {
 	handler := ars.AwsAnyCallHandler{cloudConn.Region, cloudConn.CredentialInfo, cloudConn.AnyCallClient}
 	return &handler, nil
+}
+
+func (cloudConn *AwsCloudConnection) CreateMetainfoHandler() (irs.MetainfoHandler, error) {
+	metahandler := ars.AwsMetainfoHandler{cloudConn.Region, cloudConn.MetainfoClient}
+	return &metahandler, nil
 }

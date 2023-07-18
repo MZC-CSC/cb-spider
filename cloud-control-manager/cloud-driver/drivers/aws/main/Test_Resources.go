@@ -13,7 +13,6 @@ package main
 import (
 	"fmt"
 	"io/ioutil"
-	"os"
 
 	"github.com/aws/aws-sdk-go/aws/awserr"
 
@@ -622,6 +621,22 @@ func handleVNetwork() {
 	}
 }
 */
+
+func handleMetainfo() {
+	cblogger.Debug("Start Meta info Test")
+	MetainfoHandler, err := setMetainfoHandler()
+	if err != nil {
+		panic(err)
+	}
+
+	result, err := MetainfoHandler.GetAllRegionZone()
+	if err != nil {
+		cblogger.Info(" GetAllRegionZone 실패 : ", err)
+	} else {
+		cblogger.Info("GetAllRegionZone 결과")
+		spew.Dump(result)
+	}
+}
 
 func handleVPC() {
 	cblogger.Debug("Start VPC Resource Test")
@@ -1624,6 +1639,7 @@ func handleCluster() {
 func main() {
 	cblogger.Info("AWS Resource Test")
 	//handleVPC()
+	handleMetainfo()
 	//handleKeyPair()
 	//handlePublicIP() // PublicIP 생성 후 conf
 	//handleSecurity()
@@ -1633,7 +1649,7 @@ func main() {
 	//handleVNic() //Lancard
 	//handleVMSpec()
 	//handleNLB()
-	handleCluster()
+	//handleCluster()
 
 }
 
@@ -1682,7 +1698,10 @@ func getResourceHandler(handlerType string) (interface{}, error) {
 		resourceHandler, err = cloudConnection.CreateNLBHandler()
 	case "PMKS":
 		resourceHandler, err = cloudConnection.CreateClusterHandler()
+	case "Metainfo":
+		resourceHandler, err = cloudConnection.CreateMetainfoHandler()
 	}
+	
 
 	if err != nil {
 		return nil, err
@@ -1746,6 +1765,34 @@ func setVPCHandler() (irs.VPCHandler, error) {
 	return handler, nil
 }
 
+func setMetainfoHandler() (irs.MetainfoHandler, error) {
+	var cloudDriver idrv.CloudDriver
+	cloudDriver = new(awsdrv.AwsDriver)
+
+	config := readConfigFile()
+	connectionInfo := idrv.ConnectionInfo{
+		CredentialInfo: idrv.CredentialInfo{
+			ClientId:     config.Aws.AawsAccessKeyID,
+			ClientSecret: config.Aws.AwsSecretAccessKey,
+		},
+		RegionInfo: idrv.RegionInfo{
+			Region: config.Aws.Region,
+			Zone:   config.Aws.Zone,
+		},
+	}
+
+	cloudConnection, err := cloudDriver.ConnectCloud(connectionInfo)
+	if err != nil {
+		return nil, err
+	}
+
+	metaInfohandler, err := cloudConnection.CreateMetainfoHandler()
+	if err != nil {
+		return nil, err
+	}
+	return metaInfohandler, nil
+}
+
 // Region : 사용할 리전명 (ex) ap-northeast-2
 // ImageID : VM 생성에 사용할 AMI ID (ex) ami-047f7b46bd6dd5d84
 // BaseName : 다중 VM 생성 시 사용할 Prefix이름 ("BaseName" + "_" + "숫자" 형식으로 VM을 생성 함.) (ex) mcloud-barista
@@ -1783,8 +1830,8 @@ type Config struct {
 // 환경변수 CBSPIDER_PATH 설정 후 해당 폴더 하위에 /config/config.yaml 파일 생성해야 함.
 func readConfigFile() Config {
 	// Set Environment Value of Project Root Path
-	rootPath := os.Getenv("CBSPIDER_PATH")
-	//rootPath = "/home/nobang/goland/branches/feature_pmks_aws_20221005_yhnoh2/cloud-control-manager/cloud-driver/drivers/aws/main"
+	//rootPath := os.Getenv("CBSPIDER_PATH")
+	rootPath := "/home/raccoon/workspace/go/src/MZ/cb-spider/cloud-control-manager/cloud-driver/drivers/aws/main"
 	//rootpath := "D:/Workspace/mcloud-barista-config"
 	// /mnt/d/Workspace/mcloud-barista-config/config/config.yaml
 	cblogger.Infof("Test Data 설정파일 : [%]", rootPath+"/config/config.yaml")
