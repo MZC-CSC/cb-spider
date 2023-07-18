@@ -22,6 +22,6 @@ type Metainfo struct {
 }	
 
 type MetainfoHandler interface {
-	GetAllRegionZone () (*ec2.DescribeAvailabilityZonesOutput,error)
+	GetAllRegionZone () ([]ec2.DescribeAvailabilityZonesOutput,error)
 	//GetAllRegionZone(FID Metainfo) (Metainfo, error)
 }
