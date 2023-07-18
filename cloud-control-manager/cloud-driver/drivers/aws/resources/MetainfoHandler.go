@@ -20,8 +20,6 @@ func (metaInfoHandler *AwsMetainfoHandler) GetAllRegionZone () (*ec2.DescribeAva
 	hiscallInfo := GetCallLogScheme(metaInfoHandler.Region, call.METAINFO, "Meta", "GetAllRegionZone()")
 	start := call.Start()
 
-	
-
 	Regionsinput := &ec2.DescribeRegionsInput{
 		AllRegions : aws.Bool(true),
 	}
@@ -29,18 +27,18 @@ func (metaInfoHandler *AwsMetainfoHandler) GetAllRegionZone () (*ec2.DescribeAva
 	var availabilityZones []*ec2.DescribeAvailabilityZonesOutput
 
 
-	req, resp := metaInfoHandler.Client.DescribeRegionsRequest(Regionsinput)
-	regionerr := req.Send()
+	regionreq, regionresp := metaInfoHandler.Client.DescribeRegionsRequest(Regionsinput)
+	regionerr := regionreq.Send()
 	if regionerr != nil {
 		return nil, regionerr
 	}
-	fmt.Print(resp.Regions)
+	fmt.Print(regionresp.Regions)
 	
 
 	Zoneinput := &ec2.DescribeAvailabilityZonesInput{
 		AllAvailabilityZones : aws.Bool(true),
 	}
-	// Zoneinput.SetRegions(resp.Regions)
+	// Zoneinput.SetRegions(resp.Regions) 
 
 	Zonereq, Zoneresp := metaInfoHandler.Client.DescribeAvailabilityZonesRequest(Zoneinput)
 	hiscallInfo.ElapsedTime = call.Elapsed(start)
