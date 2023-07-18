@@ -14,7 +14,7 @@ type AwsMetainfoHandler struct {
 	Client         *ec2.EC2
 }
 
-func (metaInfoHandler *AwsMetainfoHandler) GetAllRegionZone () (*ec2.DescribeAvailabilityZonesOutput,error){
+func (metaInfoHandler *AwsMetainfoHandler) GetAllRegionZone () ([]*ec2.DescribeAvailabilityZonesOutput,error){
 	cblogger.Info("AWS Driver: called Metainfo()/GetAllRegionZone()!")
 
 	hiscallInfo := GetCallLogScheme(metaInfoHandler.Region, call.METAINFO, "Meta", "GetAllRegionZone()")
@@ -55,5 +55,5 @@ func (metaInfoHandler *AwsMetainfoHandler) GetAllRegionZone () (*ec2.DescribeAva
 
 	calllogger.Info(call.String(hiscallInfo))
 	//calllogger.Info(call.String(resp))
-	return Zoneresp, nil
+	return availabilityZones, nil
 }
