@@ -51,6 +51,7 @@ func GetResourceHandler(handlerType string) (interface{}, error) {
 	cloudDriver = new(gcpdrv.GCPDriver)
 
 	credentialFilePath := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
+	credentialFilePath = "/home/raccoon/workspace/go/src/MZ/raccoon-spider/cloud-control-manager/cloud-driver/drivers/gcp/main/conf/csta-349809-9b2c5776a041.json"
 	cblogger.Infof("export $GOOGLE_APPLICATION_CREDENTIALS : [%s]", credentialFilePath)
 	cblogger.Infof("credentialFilePath : [%s]", credentialFilePath)
 

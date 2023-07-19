@@ -10,18 +10,22 @@
 
 package resources
 
-import "github.com/aws/aws-sdk-go/service/ec2"
-
 
 type Metainfo struct {
 	FID  			 string		// Function ID
-
-	ZoneList 		[]KeyValue	// DiskCreating | DiskAvailable | DiskAttached | DiskDeleting | DiskError
-
-	KeyValueList 	[]KeyValue
 }	
 
+
+type AvailabilityZonesOutput struct {
+	RegionName 			*string
+	AvailabilityZones 	[]*AvailabilityZone
+}
+
+type AvailabilityZone struct {
+	ZoneName 	*string
+	State 		*string
+}
+
 type MetainfoHandler interface {
-	GetAllRegionZone () ([]ec2.DescribeAvailabilityZonesOutput,error)
-	//GetAllRegionZone(FID Metainfo) (Metainfo, error)
+	GetAllRegionZone () ([]AvailabilityZonesOutput,error)
 }
