@@ -329,7 +329,7 @@ func (nlbHandler *GCPNLBHandler) CreateNLB(nlbReqInfo irs.NLBInfo) (irs.NLBInfo,
 	// targetPool 안에 healthCheckID가 들어 감.
 	newTargetPool, err := nlbHandler.convertNlbInfoToTargetPool(&nlbReqInfo)
 	if err != nil {
-		cblogger.Info("targetPoolList convert err: ", err)
+		cblogger.Error("targetPoolList convert err: ", err)
 		// 이전 step 자원 회수 후 return
 		resultMsg := nlbHandler.rollbackCreatedNlbResources(regionID, resultMap)
 		resultMsg += resultMsg + "(2) TargetPool " + err.Error()
@@ -339,7 +339,7 @@ func (nlbHandler *GCPNLBHandler) CreateNLB(nlbReqInfo irs.NLBInfo) (irs.NLBInfo,
 
 	targetPool, err := nlbHandler.insertTargetPool(regionID, newTargetPool)
 	if err != nil {
-		cblogger.Info("targetPoolList  err: ", err)
+		cblogger.Error("targetPoolList  err: ", err)
 		// 이전 step 자원 회수 후 return
 		resultMsg := nlbHandler.rollbackCreatedNlbResources(regionID, resultMap)
 		resultMsg += resultMsg + "(2) TargetPool " + err.Error()
@@ -456,7 +456,7 @@ func (nlbHandler *GCPNLBHandler) ListNLB() ([]*irs.NLBInfo, error) {
 			nlbInfo, err := nlbHandler.GetNLB(irs.IID{NameId: "", SystemId: targetLbValue})
 			if err != nil {
 				// 에러가 났어도 다음 nlb 조회
-				cblogger.Info("getNLB error. targetPoolUrl = " + targetPoolUrl)
+				cblogger.Error("getNLB error. targetPoolUrl = " + targetPoolUrl)
 				cblogger.Error(err)
 			} else {
 				nlbInfoList = append(nlbInfoList, &nlbInfo)

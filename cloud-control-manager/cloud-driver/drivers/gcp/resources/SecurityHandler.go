@@ -947,7 +947,7 @@ func (securityHandler *GCPSecurityHandler) AddRules(sgIID irs.IID, securityRules
 	// All Deny Outboun가  없으면 추가한다.
 	cblogger.Debug("existsAllDenyOutbound ----------------- ", existsAllDenyOutbound)
 	if !existsAllDenyOutbound {
-		cblogger.Info("default outbound all deny does not exist, create one")
+		cblogger.Error("default outbound all deny does not exist, create one")
 		maxEgessCount := maxFirewallSequence(firewallList, Const_GCP_Direction_EGRESS)
 		maxEgessCount++
 		_, err = securityHandler.insertDefaultOutboundPolicy(projectID, vpcId, securityGroupTag, maxEgessCount)

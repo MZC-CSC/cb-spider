@@ -39,19 +39,19 @@ func (vVPCHandler *GCPVPCHandler) CreateVPC(vpcReqInfo irs.VPCReqInfo) (irs.VPCI
 	cblogger.Info(vpcReqInfo)
 
 	if vpcReqInfo.IId.NameId == "" {
-		cblogger.Infof("생성할 VPC 이름[%s]이 없습니다.", vpcReqInfo.IId.NameId)
+		cblogger.Errorf("생성할 VPC 이름[%s]이 없습니다.", vpcReqInfo.IId.NameId)
 		return irs.VPCInfo{}, errors.New("Invalid Request - VPC NameId is required.")
 	}
 
 	if vpcReqInfo.SubnetInfoList == nil {
-		cblogger.Info("생성할 VPC의 Subnet 정보가 없습니다.")
+		cblogger.Error("생성할 VPC의 Subnet 정보가 없습니다.")
 		return irs.VPCInfo{}, errors.New("Invalid Request - Subnet information is required.")
 	}
 
 	cblogger.Infof("생성된 [%s] VPC가 있는지 체크", vpcReqInfo.IId.NameId)
 	_, errChkVpc := vVPCHandler.GetVPC(irs.IID{SystemId: vpcReqInfo.IId.NameId})
 	if errChkVpc == nil {
-		cblogger.Infof("이미 [%s] VPCs가 존재함.", vpcReqInfo.IId.NameId)
+		cblogger.Errorf("이미 [%s] VPCs가 존재함.", vpcReqInfo.IId.NameId)
 		return irs.VPCInfo{}, errors.New("Already Exist - " + vpcReqInfo.IId.NameId)
 	}
 

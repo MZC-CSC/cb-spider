@@ -124,7 +124,7 @@ func (vmHandler *GCPVMHandler) StartVM(vmReqInfo irs.VMReqInfo) (irs.VMInfo, err
 
 		computeImage, err := GetPublicImageInfo(vmHandler.Client, vmReqInfo.ImageIID)
 		if err != nil {
-			cblogger.Info("GetPublicImageInfo err : ", err)
+			cblogger.Error("GetPublicImageInfo err : ", err)
 			return irs.VMInfo{}, err
 		}
 
@@ -362,7 +362,7 @@ func (vmHandler *GCPVMHandler) StartVM(vmReqInfo irs.VMReqInfo) (irs.VMInfo, err
 				// RootDiskType을 조회하여 diskSize의 min, max, default값 추출 한 뒤 입력된 diskSize가 있으면 비교시 사용
 				diskSizeResp, err := vmHandler.Client.DiskTypes.Get(projectID, zone, diskType).Do()
 				if err != nil {
-					cblogger.Debug("Invalid Disk Type Error!!")
+					cblogger.Error("Invalid Disk Type Error!!")
 					return irs.VMInfo{}, err
 				}
 
@@ -386,13 +386,13 @@ func (vmHandler *GCPVMHandler) StartVM(vmReqInfo irs.VMReqInfo) (irs.VMInfo, err
 				// diskUnit := "GB" // 기본 단위는 GB
 
 				if iDiskSize < diskMinSize {
-					cblogger.Debug("Disk Size Error!!: ", iDiskSize)
+					cblogger.Error("Disk Size Error!!: ", iDiskSize)
 					//return irs.VMInfo{}, errors.New("Requested disk size cannot be smaller than the minimum disk size, invalid")
 					return irs.VMInfo{}, errors.New("Root Disk Size must be at least the default size (" + strconv.FormatInt(diskMinSize, 10) + " GB).")
 				}
 
 				if iDiskSize > diskMaxSize {
-					cblogger.Debug("Disk Size Error!!: ", iDiskSize)
+					cblogger.Error("Disk Size Error!!: ", iDiskSize)
 					//return irs.VMInfo{}, errors.New("Requested disk size cannot be larger than the maximum disk size, invalid")
 					return irs.VMInfo{}, errors.New("Root Disk Size must be smaller than the maximum size (" + strconv.FormatInt(diskMaxSize, 10) + " GB).")
 				}
@@ -401,7 +401,7 @@ func (vmHandler *GCPVMHandler) StartVM(vmReqInfo irs.VMReqInfo) (irs.VMInfo, err
 			//imageSize = imageResp.DiskSizeGb
 
 			if iDiskSize < imageSize {
-				cblogger.Debug("Disk Size Error!!: ", iDiskSize)
+				cblogger.Error("Disk Size Error!!: ", iDiskSize)
 				return irs.VMInfo{}, errors.New("Root Disk Size must be larger then the image size (" + strconv.FormatInt(imageSize, 10) + " GB).")
 			}
 
@@ -881,7 +881,7 @@ func (vmHandler *GCPVMHandler) ListVM() ([]*irs.VMInfo, error) {
 		callLogInfo.ErrorMSG = err.Error()
 		callogger.Info(call.String(callLogInfo))
 		cblogger.Error(err)
-		cblogger.Infof("해당존에 만들어진 Vm List 가 없음")
+		cblogger.Error("해당존에 만들어진 Vm List 가 없음")
 		return nil, err
 	}
 	callogger.Info(call.String(callLogInfo))
