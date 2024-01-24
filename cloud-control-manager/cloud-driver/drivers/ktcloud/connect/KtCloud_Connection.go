@@ -30,6 +30,7 @@ type KtCloudConnection struct {
 	CredentialInfo idrv.CredentialInfo
 	RegionInfo     idrv.RegionInfo
 	Client         *ktsdk.KtCloudClient
+	NLBClient      *ktsdk.KtCloudClient
 }
 
 var cblogger *logrus.Logger
@@ -88,12 +89,14 @@ func (cloudConn *KtCloudConnection) CreateVPCHandler() (irs.VPCHandler, error) {
 
 func (cloudConn *KtCloudConnection) CreateNLBHandler() (irs.NLBHandler, error) {
 	cblogger.Info("KT Cloud Driver: called CreateNLBHandler()!")
-	return nil, fmt.Errorf("KT Cloud Driver does not support CreateNLBHandler yet.")
+	nlbHandler := ktrs.KtCloudNLBHandler{RegionInfo: cloudConn.RegionInfo, Client: cloudConn.Client, NLBClient: cloudConn.NLBClient}
+	return &nlbHandler, nil
 }
 
 func (cloudConn *KtCloudConnection) CreateDiskHandler() (irs.DiskHandler, error) {
 	cblogger.Info("KT Cloud Driver: called CreateDiskHandler()!")
-	return nil, fmt.Errorf("KT Cloud Driver does not support CreateDiskHandler yet.")
+	diskHandler := ktrs.KtCloudDiskHandler{RegionInfo: cloudConn.RegionInfo, Client: cloudConn.Client}
+	return &diskHandler, nil
 }
 
 func (cloudConn *KtCloudConnection) CreateClusterHandler() (irs.ClusterHandler, error) {
@@ -103,7 +106,8 @@ func (cloudConn *KtCloudConnection) CreateClusterHandler() (irs.ClusterHandler, 
 
 func (cloudConn *KtCloudConnection) CreateMyImageHandler() (irs.MyImageHandler, error) {
 	cblogger.Info("KT Cloud Driver: called CreateMyImageHandler()!")
-	return nil, fmt.Errorf("KT Cloud Driver does not support CreateMyImageHandler yet.")
+	myimageHandler := ktrs.KtCloudMyImageHandler{RegionInfo: cloudConn.RegionInfo, Client: cloudConn.Client}
+	return &myimageHandler, nil
 }
 
 func (cloudConn *KtCloudConnection) CreateAnyCallHandler() (irs.AnyCallHandler, error) {

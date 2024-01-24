@@ -9,6 +9,7 @@
 package restruntime
 
 import (
+	"encoding/json"
 	"net/http"
 
 	cmrt "github.com/cloud-barista/cb-spider/api-runtime/common-runtime"
@@ -39,7 +40,11 @@ func ListProductFamily(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	return c.JSON(http.StatusOK, result)
+	var jsonResult struct {
+		Result []string `json:"productfamily"`
+	}
+	jsonResult.Result = result
+	return c.JSON(http.StatusOK, &jsonResult)
 }
 
 func GetPriceInfo(c echo.Context) error {
@@ -65,5 +70,8 @@ func GetPriceInfo(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	return c.JSON(http.StatusOK, result)
+	var Result cres.CloudPriceData
+	json.Unmarshal([]byte(result), &Result)
+	return c.JSON(http.StatusOK, Result)
+
 }

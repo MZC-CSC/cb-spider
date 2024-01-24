@@ -8,6 +8,8 @@ import (
 	irs "github.com/cloud-barista/cb-spider/cloud-control-manager/cloud-driver/interfaces/resources"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
+
 	"github.com/aws/aws-sdk-go/service/pricing"
 )
 
@@ -21,26 +23,47 @@ type AwsPriceInfoHandler struct {
 // getPricingClient에 Client *pricing.Pricing 정의
 func (priceInfoHandler *AwsPriceInfoHandler) ListProductFamily(regionName string) ([]string, error) {
 	var result []string
-	input := &pricing.DescribeServicesInput{}
+	input := &pricing.GetAttributeValuesInput{
+		AttributeName: aws.String("productfamily"),
+		MaxResults:    aws.Int64(32), // 2024.01 기준 32개
+		ServiceCode:   aws.String("AmazonEC2"),
+	}
 	for {
-		services, err := priceInfoHandler.Client.DescribeServices(input)
+		attributeValues, err := priceInfoHandler.Client.GetAttributeValues(input)
 		if err != nil {
-			cblogger.Error(err)
-			return nil, err
+			if aerr, ok := err.(awserr.Error); ok {
+				switch aerr.Code() {
+				case pricing.ErrCodeInternalErrorException:
+					cblogger.Error(pricing.ErrCodeInternalErrorException, aerr.Error())
+				case pricing.ErrCodeInvalidParameterException:
+					cblogger.Error(pricing.ErrCodeInvalidParameterException, aerr.Error())
+				case pricing.ErrCodeNotFoundException:
+					cblogger.Error(pricing.ErrCodeNotFoundException, aerr.Error())
+				case pricing.ErrCodeInvalidNextTokenException:
+					cblogger.Error(pricing.ErrCodeInvalidNextTokenException, aerr.Error())
+				case pricing.ErrCodeExpiredNextTokenException:
+					cblogger.Error(pricing.ErrCodeExpiredNextTokenException, aerr.Error())
+				default:
+					cblogger.Error(aerr.Error())
+				}
+			} else {
+				// Prnit the error, cast err to awserr.Error to get the Code and
+				// Message from an error.
+				cblogger.Error(err.Error())
+			}
 		}
-		for _, service := range services.Services {
-			cblogger.Info(service)
-			result = append(result, *service.ServiceCode)
+		for _, attributeValue := range attributeValues.AttributeValues {
+			result = append(result, *attributeValue.Value)
 		}
-		if services.NextToken != nil {
-			input = &pricing.DescribeServicesInput{
-				NextToken: services.NextToken,
+		if attributeValues.NextToken != nil {
+			input = &pricing.GetAttributeValuesInput{
+				NextToken: attributeValues.NextToken,
 			}
 		} else {
 			break
 		}
 	}
-	cblogger.Info()
+
 	return result, nil
 }
 
@@ -76,12 +99,13 @@ func (priceInfoHandler *AwsPriceInfoHandler) GetPriceInfo(productFamily string, 
 			}
 		}
 	}
-
-	getProductsinputfilters = append(getProductsinputfilters, &pricing.Filter{
-		Field: aws.String("regionCode"),
-		Type:  aws.String("EQUALS"),
-		Value: aws.String(regionName),
-	})
+	if regionName != "" {
+		getProductsinputfilters = append(getProductsinputfilters, &pricing.Filter{
+			Field: aws.String("regionCode"),
+			Type:  aws.String("EQUALS"),
+			Value: aws.String(regionName),
+		})
+	}
 
 	getProductsinput := &pricing.GetProductsInput{
 		Filters:     getProductsinputfilters,
@@ -99,13 +123,13 @@ func (priceInfoHandler *AwsPriceInfoHandler) GetPriceInfo(productFamily string, 
 	result.Meta.Description = "Multi-Cloud Price Info"
 
 	for _, price := range priceinfos.PriceList {
-		var productInfo irs.ProductInfo
-		var priceListone irs.Price
-
 		jsonString, err := json.MarshalIndent(price["product"].(map[string]interface{})["attributes"], "", "    ")
 		if err != nil {
 			cblogger.Error(err)
 		}
+
+		var productInfo irs.ProductInfo
+		ReplaceEmptyWithNA(&productInfo)
 		err = json.Unmarshal(jsonString, &productInfo)
 		if err != nil {
 			cblogger.Error(err)
@@ -113,18 +137,18 @@ func (priceInfoHandler *AwsPriceInfoHandler) GetPriceInfo(productFamily string, 
 
 		productInfo.ProductId = fmt.Sprintf("%s", price["product"].(map[string]interface{})["sku"])
 		productInfo.RegionName = fmt.Sprintf("%s", price["product"].(map[string]interface{})["attributes"].(map[string]interface{})["regionCode"])
-		productInfo.Description = fmt.Sprintf("productFamily %s, version %s", price["product"].(map[string]interface{})["productFamily"], price["version"])
+		productInfo.Description = fmt.Sprintf("productFamily= %s, version= %s", price["product"].(map[string]interface{})["productFamily"], price["version"])
 		productInfo.CSPProductInfo = price["product"]
-		// product info
+		productInfo.ZoneName = "NA" // AWS zone is Not Applicable - 202401
 
 		var priceInfo irs.PriceInfo
 		priceInfo.CSPPriceInfo = price["terms"]
 		for termsKey, termsValue := range price["terms"].(map[string]interface{}) {
 			for _, policyvalue := range termsValue.(map[string]interface{}) {
+				var pricingPolicy irs.PricingPolicies
 				for innerpolicyKey, innerpolicyValue := range policyvalue.(map[string]interface{}) {
 					if innerpolicyKey == "priceDimensions" {
 						for priceDimensionsKey, priceDimensionsValue := range innerpolicyValue.(map[string]interface{}) {
-							var pricingPolicy irs.PricingPolicies
 							pricingPolicy.PricingId = priceDimensionsKey
 							pricingPolicy.PricingPolicy = termsKey
 							pricingPolicy.Description = fmt.Sprintf("%s", priceDimensionsValue.(map[string]interface{})["description"])
@@ -145,7 +169,7 @@ func (priceInfoHandler *AwsPriceInfoHandler) GetPriceInfo(productFamily string, 
 			}
 		}
 		// price info
-
+		var priceListone irs.Price
 		priceListone.ProductInfo = productInfo
 		priceListone.PriceInfo = priceInfo
 
@@ -153,7 +177,6 @@ func (priceInfoHandler *AwsPriceInfoHandler) GetPriceInfo(productFamily string, 
 			CloudName: "AWS",
 		}
 		priceone.PriceList = append(priceone.PriceList, priceListone)
-
 		result.CloudPriceList = append(result.CloudPriceList, priceone)
 	}
 

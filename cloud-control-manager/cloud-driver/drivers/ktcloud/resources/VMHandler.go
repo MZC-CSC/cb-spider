@@ -116,7 +116,7 @@ func (vmHandler *KtCloudVMHandler) StartVM(vmReqInfo irs.VMReqInfo) (irs.VMInfo,
 	// (Caution!!) Upon deployVirtualMachine() request, Base64 encoding of UserData is not required because Base64 encoding is applied in KT Cloud SDK GO.
 
 	// Check whether the VM name exists
-	vmId, nameCheckErr := vmHandler.GetVmIdByName(instanceName)
+	vmId, nameCheckErr := vmHandler.GetVmIdWithName(instanceName)
 	if vmId != "" {
 		cblogger.Errorf("Failed to Create the VM. The VM Name already Exists!! : [%s]", instanceName)
 		return irs.VMInfo{}, nameCheckErr
@@ -164,9 +164,9 @@ func (vmHandler *KtCloudVMHandler) StartVM(vmReqInfo irs.VMReqInfo) (irs.VMInfo,
 	// spew.Dump(jobResult.Queryasyncjobresultresponse.JobResult)
 	spew.Dump(jobResult)
 
-	if newVM.Deployvirtualmachineresponse.ID == "" {
+	if strings.EqualFold(newVM.Deployvirtualmachineresponse.ID, "") {
 		cblogger.Error("Failed to Find the VM Instance ID!!")
-	} else {		
+	} else {
 		// cblogger.Info("Start Get VM Status...")
 		// vmStatus, err := vmHandler.GetVMStatus(newVM.Deployvirtualmachineresponse.ID)
 		// if err != nil {
@@ -216,7 +216,7 @@ func (vmHandler *KtCloudVMHandler) StartVM(vmReqInfo irs.VMReqInfo) (irs.VMInfo,
 
 		publicIp, err := vmHandler.AssociateIpAddress()
 		if err != nil {
-			cblogger.Errorf("Failed to Map the VM info : [%v]", err)	
+			cblogger.Errorf("Failed to Create New Public IP : [%v]", err)	
 			return irs.VMInfo{}, err
 		}
 
@@ -330,6 +330,7 @@ func (vmHandler *KtCloudVMHandler) MappingServerInfo(KtCloudInstance ktsdk.Virtu
 	cblogger.Info("KT Cloud cloud driver: called MappingServerInfo()!!")
 	InitLog()
 	callLogInfo := GetCallLogScheme(vmHandler.RegionInfo.Zone, call.VM, KtCloudInstance.Name, "MappingServerInfo()")
+	// cblogger.Info("# KtCloudInstance : ")
 	// spew.Dump(KtCloudInstance)
 
 	// To get list of the PortForwarding Rule info
@@ -359,18 +360,22 @@ func (vmHandler *KtCloudVMHandler) MappingServerInfo(KtCloudInstance ktsdk.Virtu
 		cblogger.Errorf("Failed to Get VPC ID from tags : [%v]", err)
 		return irs.VMInfo{}, err
 	}
+	time.Sleep(time.Second * 1) 
+	// To Prevent the Error : "Unable to execute API command listTags due to ratelimit timeout"
 
 	subnetId, err := vmHandler.GetSubnetFromTags(KtCloudInstance.ID)
 	if err != nil {
 		cblogger.Errorf("Failed to Get Subnet ID from tags : [%v]", err)
 		return irs.VMInfo{}, err
 	}
+	time.Sleep(time.Second * 1)
 
 	vmSpecId, err := vmHandler.GetVMSpecFromTags(KtCloudInstance.ID)
 	if err != nil {
 		cblogger.Errorf("Failed to Get vmSpec ID from tags : [%v]", err)
 		return irs.VMInfo{}, err
 	}
+	time.Sleep(time.Second * 1)
 
 	sgList, err := vmHandler.GetSGListFromTags(KtCloudInstance.ID)
 	if err != nil {
@@ -586,7 +591,7 @@ func (vmHandler *KtCloudVMHandler) SuspendVM(vmIID irs.IID) (irs.VMStatus, error
 			cblogger.Info("===> VM Status : ", curStatus)
 			if curStatus != irs.VMStatus("Suspended") {
 				curRetryCnt++
-				cblogger.Infof("The VM status is not 'Suspended' yet, so wait more before inquiring Termination.")
+				cblogger.Infof("The VM status is not 'Suspended' yet, so wait more!!")
 				time.Sleep(time.Second * 2)
 				if curRetryCnt > maxRetryCnt {
 					cblogger.Error("Despite waiting for a long time(%d sec), the VM is not 'Suspended' yet, so it is forcibly terminated.", maxRetryCnt)
@@ -671,7 +676,7 @@ func (vmHandler *KtCloudVMHandler) ResumeVM(vmIID irs.IID) (irs.VMStatus, error)
 			cblogger.Info("===> VM Status : ", curStatus)
 			if curStatus != irs.VMStatus("Running") {
 				curRetryCnt++
-				cblogger.Infof("The VM is not 'Resumed' yet, so wait more before inquiring Termination.")
+				cblogger.Infof("The VM is not 'Resumed' yet, so wait more!!")
 				time.Sleep(time.Second * 2)
 				if curRetryCnt > maxRetryCnt {
 					cblogger.Error("Despite waiting for a long time(%d sec), the VM is not 'Resumed' yet, so it is forcibly terminated.", maxRetryCnt)
@@ -750,7 +755,7 @@ func (vmHandler *KtCloudVMHandler) RebootVM(vmIID irs.IID) (irs.VMStatus, error)
 			cblogger.Info("===> VM Status : ", curStatus)
 			if curStatus != irs.VMStatus("Running") {
 				curRetryCnt++
-				cblogger.Infof("The VM is not 'Running' yet, so wait more before inquiring Termination.")
+				cblogger.Infof("The VM is not 'Running' yet, so wait more!!")
 				time.Sleep(time.Second * 2)
 				if curRetryCnt > maxRetryCnt {
 					cblogger.Error("Despite waiting for a long time(%d sec), the VM is not 'Running' yet, so it is forcibly terminated.", maxRetryCnt)
@@ -1004,30 +1009,24 @@ func ConvertVMStatusToString(vmStatus string) (string, error) {
 
 func (vmHandler *KtCloudVMHandler) ListVMStatus() ([]*irs.VMStatusInfo, error) {
 	cblogger.Info("KT Cloud cloud driver: called ListVMStatus()!")
-	cblogger.Infof("vmHandler.RegionInfo.Zone : [%s]", vmHandler.RegionInfo.Region)
 
-	vmListReqInfo := ktsdk.ListVMReqInfo{
-		ZoneId: 	vmHandler.RegionInfo.Zone,
-	}
-	result, err := vmHandler.Client.ListVirtualMachines(vmListReqInfo)
+	ktVMList, err := vmHandler.ListKTCloudVM()
 	if err != nil {
 		cblogger.Errorf("Failed to Get the List of VMs : [%v]", err)
 		return []*irs.VMStatusInfo{}, err
 	}
-
-	if len(result.Listvirtualmachinesresponse.Virtualmachine) < 1 {
+	if len(ktVMList) < 1 {
 		cblogger.Info("### There is No VM!!")
-		// return []*irs.VMStatusInfo{}, errors.New("Failed to Find VM list!!")
 		return []*irs.VMStatusInfo{}, nil
+		// return []*irs.VMStatusInfo{}, errors.New("Failed to Find VM list!!")
 	}
-	cblogger.Info("Succeeded in Getting VM Instance List!!")
 
 	var vmStatusList []*irs.VMStatusInfo
-	for _, vm := range result.Listvirtualmachinesresponse.Virtualmachine {
+	for _, vm := range ktVMList {
 		vmStatus, err := ConvertVMStatus(vm.State)
 		if err != nil {
 			cblogger.Errorf("Failed to Convert the VM Status : [%v]", err)
-			return nil, err
+			return []*irs.VMStatusInfo{}, nil
 		}
 
 		vmStatusInfo := irs.VMStatusInfo{
@@ -1045,27 +1044,21 @@ func (vmHandler *KtCloudVMHandler) ListVMStatus() ([]*irs.VMStatusInfo, error) {
 
 func (vmHandler *KtCloudVMHandler) ListVM() ([]*irs.VMInfo, error) {
 	cblogger.Info("KT Cloud cloud driver: called ListVM()!")
-	cblogger.Infof("vmHandler.RegionInfo.Zone : [%s]", vmHandler.RegionInfo.Zone)
 
-	vmListReqInfo := ktsdk.ListVMReqInfo{
-		ZoneId: 	vmHandler.RegionInfo.Zone,
-	}
-	result, err := vmHandler.Client.ListVirtualMachines(vmListReqInfo)
+	ktVMList, err := vmHandler.ListKTCloudVM()
 	if err != nil {
 		cblogger.Errorf("Failed to Get the List of VMs : [%v]", err)
 		return []*irs.VMInfo{}, err
 	}
-	// LoggingInfo(hiscallInfo, start)
-	if len(result.Listvirtualmachinesresponse.Virtualmachine) < 1 {
-		// return []*irs.VMInfo{}, errors.New("Failed to Find the VM list!!")
+	if len(ktVMList) < 1 {
 		cblogger.Info("### There is No VM!!")
 		return []*irs.VMInfo{}, nil
+		// return []*irs.VMStatusInfo{}, errors.New("Failed to Find VM list!!")
 	}
-	// spew.Dump(result)
 
 	var vmInfoList []*irs.VMInfo	
-	for _, vm := range result.Listvirtualmachinesresponse.Virtualmachine {
-		vmInfo, err:= vmHandler.MappingServerInfo(vm)
+	for _, ktVM := range ktVMList {
+		vmInfo, err:= vmHandler.MappingServerInfo(ktVM)
 		if err != nil {
 			cblogger.Errorf("Failed to Map the VM info : [%v]", err)
 			return []*irs.VMInfo{}, err
@@ -1075,29 +1068,121 @@ func (vmHandler *KtCloudVMHandler) ListVM() ([]*irs.VMInfo, error) {
 	return vmInfoList, nil
 }
 
-func (vmHandler *KtCloudVMHandler) GetVmIdByName(vmNameID string) (string, error) {
-	var vmId string
+func (vmHandler *KtCloudVMHandler) ListKTCloudVM() ([]ktsdk.Virtualmachine, error) {
+	cblogger.Info("KT Cloud cloud driver: called ListKTCloudVM()!")
+	cblogger.Infof("vmHandler.RegionInfo.Zone : [%s]", vmHandler.RegionInfo.Region)
 
-	// Get VM list
-	vmList, err := vmHandler.ListVM()
+	vmListReqInfo := ktsdk.ListVMReqInfo{
+		ZoneId: 	vmHandler.RegionInfo.Zone,
+	}
+	result, err := vmHandler.Client.ListVirtualMachines(vmListReqInfo)
 	if err != nil {
-		return "", err
+		cblogger.Errorf("Failed to Get the VM List from KT Cloud : [%v]", err)
+		return []ktsdk.Virtualmachine{}, err
+	}
+	if len(result.Listvirtualmachinesresponse.Virtualmachine) < 1 {
+		cblogger.Info("### There is No VM!!")
+		return []ktsdk.Virtualmachine{}, nil
+		// return []*irs.VMInfo{}, errors.New("Failed to Find the VM list!!")
+	}
+	// spew.Dump(result)
+	return result.Listvirtualmachinesresponse.Virtualmachine, nil
+}
+
+
+func (vmHandler *KtCloudVMHandler) GetKTCloudVM(vmId string) (ktsdk.Virtualmachine, error) {
+	cblogger.Info("KT Cloud cloud driver: called GetKTCloudVM()!")
+
+	if strings.EqualFold(vmHandler.RegionInfo.Zone, "") {
+		newErr := fmt.Errorf("Invalid Zone Info!!")
+		cblogger.Error(newErr.Error())
+		return ktsdk.Virtualmachine{}, newErr
 	}
 
-	// Search VM by Name in the VM list
-	for _, vm := range vmList {
-		if strings.EqualFold(vm.IId.NameId, vmNameID) {
-			vmId = vm.IId.NameId
+	if strings.EqualFold(vmId, "") {
+		newErr := fmt.Errorf("Invalid VM ID!!")
+		cblogger.Error(newErr.Error())
+		return ktsdk.Virtualmachine{}, newErr
+	}
+
+	vmListReqInfo := ktsdk.ListVMReqInfo{
+		ZoneId: 	vmHandler.RegionInfo.Zone,
+		VMId:       vmId,
+	}
+	result, err := vmHandler.Client.ListVirtualMachines(vmListReqInfo)
+	if err != nil {
+		newErr := fmt.Errorf("Failed to Get the List of VMs : [%v]", err)
+		cblogger.Error(newErr.Error())
+		return ktsdk.Virtualmachine{}, newErr
+	}
+
+	if len(result.Listvirtualmachinesresponse.Virtualmachine) < 1 {
+		return ktsdk.Virtualmachine{}, errors.New("Failed to Find the VM with the SystemId : " + vmId)
+	}
+	// spew.Dump(result)
+	return result.Listvirtualmachinesresponse.Virtualmachine[0], nil
+}
+
+
+func (vmHandler *KtCloudVMHandler) GetVmIdWithName(vmNameId string) (string, error) {
+	cblogger.Info("KT Cloud cloud driver: called GetVmIdWithName()!")
+
+	if strings.EqualFold(vmNameId, "") {
+		newErr := fmt.Errorf("Invalid VM NameId!!")
+		cblogger.Error(newErr.Error())
+		return "", newErr
+	}
+
+	// Get KT Cloud VM list
+	ktVMList, err := vmHandler.ListKTCloudVM()
+	if err != nil {
+		newErr := fmt.Errorf("Failed to Get KT Cloud VM List : [%v]", err)
+		cblogger.Error(newErr.Error())
+		return "", newErr
+	}
+	if len(ktVMList) < 1 {
+		newErr := fmt.Errorf("Failed to Find Any VM form KT Cloud : [%v]", err)
+		cblogger.Error(newErr.Error())
+		return "", newErr
+	}
+
+	var vmId string
+	for _, vm := range ktVMList {
+		if strings.EqualFold(vm.Name, vmNameId) {
+			vmId = vm.ID
 			break
 		}
 	}
 
-	// Error handling when the VM is not found
 	if vmId == "" {
-		err := errors.New(fmt.Sprintf("Failed to Find the VM with the name %s", vmNameID))
+		err := errors.New(fmt.Sprintf("Failed to Find the VM ID with the VM Name %s", vmNameId))
 		return "", err
 	} else {
 	return vmId, nil
+	}
+}
+
+func (vmHandler *KtCloudVMHandler) GetVmNameWithId(vmId string) (string, error) {
+	cblogger.Info("KT Cloud cloud driver: called GetVmNameWithId()!")
+
+	if strings.EqualFold(vmId, "") {
+		newErr := fmt.Errorf("Invalid VM ID!!")
+		cblogger.Error(newErr.Error())
+		return "", newErr
+	}
+
+	ktVM, err := vmHandler.GetKTCloudVM(vmId)
+	if err != nil {
+		newErr := fmt.Errorf("Failed to Get the VM Info from KT Cloud : [%v]", err)
+		cblogger.Error(newErr.Error())
+		return "", newErr
+	}
+	vmName := ktVM.Name
+	if vmName == "" {
+		err := errors.New(fmt.Sprintf("Failed to Find the VM Name with the VM ID %s", vmId))
+		return "", err
+	} else {
+	return vmName, nil
 	}
 }
 
@@ -1109,7 +1194,6 @@ func (vmHandler *KtCloudVMHandler) WaitToGetInfo(vmIID irs.IID) (irs.VMStatus, e
 	maxRetryCnt := 500
 
 	var returnStatus irs.VMStatus
-
 	for {
 		curStatus, errStatus := vmHandler.GetVMStatus(vmIID)
 		if errStatus != nil {
@@ -1210,8 +1294,8 @@ func (vmHandler *KtCloudVMHandler) DeletePortForwarding(publicIpId string) (irs.
 			cblogger.Errorf("Failed to Delete the PortForwarding Rule : [%v]", err)	
 			return "", err
 		} else {
-			cblogger.Info("### Waiting for PortForwarding Rule to be Deleted(300sec)!!\n")
-			waitJobErr := vmHandler.Client.WaitForAsyncJob(deleteRuleResult.Deleteportforwardingruleresponse.JobId, 300000000000)
+			cblogger.Info("### Waiting for PortForwarding Rule to be Deleted(600sec)!!\n")
+			waitJobErr := vmHandler.Client.WaitForAsyncJob(deleteRuleResult.Deleteportforwardingruleresponse.JobId, 600000000000)
 			if waitJobErr != nil {
 				cblogger.Errorf("Failed to Wait the Job : [%v]", waitJobErr)	
 				return irs.VMStatus("Terminating"), waitJobErr
@@ -1401,7 +1485,7 @@ func (vmHandler *KtCloudVMHandler) AssociateIpAddress() (string, error) {
 	}
 	createIpResponse, err := vmHandler.Client.AssociateIpAddress(IPReqInfo)
 	if err != nil {
-		cblogger.Errorf("Failed to Create new PublicIP Address: [%v]", err)
+		cblogger.Errorf("Failed to Create new Public IP : [%v]", err)
 		return "", err
 	}
 
@@ -1413,27 +1497,26 @@ func (vmHandler *KtCloudVMHandler) AssociateIpAddress() (string, error) {
 	}
 
 	var publicIp string
-	var publicIpId string
-	publicIpId = createIpResponse.Associateipaddressresponse.ID //PublicIP ID
+	publicIpId := createIpResponse.Associateipaddressresponse.ID // PublicIP ID
 	if publicIpId == "" {
-			cblogger.Error("Failed to Find PublicIP info.\n")
+			cblogger.Error("Failed to Find Public IP info.\n")
 	} else {
-		// To get the Public IP Address info. which is created.
+		// To Get the Public IP info which is created.
 		IPListReqInfo := ktsdk.ListPublicIpReqInfo {
 			ID: publicIpId, 
 		}
 		response, err := vmHandler.Client.ListPublicIpAddresses(IPListReqInfo)
 		if err != nil {
-			cblogger.Errorf("Failed to Get the List of PublicIP addresses : [%v]", err)
+			cblogger.Errorf("Failed to Get the List of Public IP : [%v]", err)
 			return "", err
 		}
 
 		if len(response.Listpublicipaddressesresponse.PublicIpAddress) > 0 {
 			publicIp = response.Listpublicipaddressesresponse.PublicIpAddress[0].IpAddress
 			ipState := response.Listpublicipaddressesresponse.PublicIpAddress[0].State
-			fmt.Printf("IP : %s, IP State : %s\n", publicIp, ipState)
+			fmt.Printf("New Public IP : %s, IP State : %s\n", publicIp, ipState)
 		} else {
-			return "", errors.New("Failed to Find PublicIP Address!!\n")
+			return "", errors.New("Failed to Find Public IP!!\n")
 		}
 	}
 	return publicIp, nil
