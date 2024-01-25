@@ -18,7 +18,7 @@ type AwsRegionZoneHandler struct {
 }
 
 func (regionZoneHandler *AwsRegionZoneHandler) ListRegionZone() ([]*irs.RegionZoneInfo, error) {
-	responseRegions, err := DescribeRegions(regionZoneHandler.Client, true, "")
+	responseRegions, err := DescribeRegions(regionZoneHandler.Client, false, "")
 	if err != nil {
 		cblogger.Error(err)
 		return nil, err
@@ -89,7 +89,7 @@ func (regionZoneHandler *AwsRegionZoneHandler) ListRegionZone() ([]*irs.RegionZo
 }
 
 func (regionZoneHandler *AwsRegionZoneHandler) GetRegionZone(Name string) (irs.RegionZoneInfo, error) {
-	responseRegions, err := DescribeRegions(regionZoneHandler.Client, true, Name)
+	responseRegions, err := DescribeRegions(regionZoneHandler.Client, false, Name)
 	if err != nil {
 		cblogger.Error(err)
 		return irs.RegionZoneInfo{}, err
@@ -146,7 +146,7 @@ func (regionZoneHandler *AwsRegionZoneHandler) GetRegionZone(Name string) (irs.R
 
 func (regionZoneHandler *AwsRegionZoneHandler) ListOrgRegion() (string, error) {
 
-	respRegions, err := DescribeRegions(regionZoneHandler.Client, true, "")
+	respRegions, err := DescribeRegions(regionZoneHandler.Client, false, "")
 	if err != nil {
 		cblogger.Error(err)
 		return "", err
@@ -163,7 +163,7 @@ func (regionZoneHandler *AwsRegionZoneHandler) ListOrgRegion() (string, error) {
 
 func (regionZoneHandler *AwsRegionZoneHandler) ListOrgZone() (string, error) {
 
-	responseRegions, err := DescribeRegions(regionZoneHandler.Client, true, "")
+	responseRegions, err := DescribeRegions(regionZoneHandler.Client, false, "")
 	if err != nil {
 		cblogger.Error(err)
 		return "", err

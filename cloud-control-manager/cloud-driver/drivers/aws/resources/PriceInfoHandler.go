@@ -67,15 +67,30 @@ func (priceInfoHandler *AwsPriceInfoHandler) ListProductFamily(regionName string
 	return result, nil
 }
 
+func convertProductFamilyToId(productFamily string) string {
+
+	switch productFamily {
+	case "Compute Instance":
+		return "AmazonEC2"
+	default:
+		return productFamily
+	}
+	return ""
+}
+
 // AWS에서는 ListProductFamily를 통해 ProductFamily와 AttributeName을 수집하고,
 // GetAttributeValues를 통해 AttributeValue를 수집하여 필터로 사용합니다.
 // GetPriceInfo는 DescribeServices를 통해 옳바른 productFamily 인자만 검사합니다. -> AttributeName에 오류가 있을경우 빈값을 리턴
 func (priceInfoHandler *AwsPriceInfoHandler) GetPriceInfo(productFamily string, regionName string, filterList []irs.KeyValue) (string, error) {
-
+	//Product Family의 Name이 오는 경우, ID로 switch
+	//DefaultReturn : 매개변수 return
+	productFamily = convertProductFamilyToId(productFamily)
+	cblogger.Info("Product Family : %s", productFamily)
 	describeServicesinput := &pricing.DescribeServicesInput{
 		ServiceCode: aws.String(productFamily),
 		MaxResults:  aws.Int64(1),
 	}
+	cblogger.Info("describeServicesinput : %s", describeServicesinput)
 	services, err := priceInfoHandler.Client.DescribeServices(describeServicesinput)
 	if services == nil {
 		cblogger.Error("No services in given productFamily. CHECK productFamily!")
@@ -85,6 +100,7 @@ func (priceInfoHandler *AwsPriceInfoHandler) GetPriceInfo(productFamily string, 
 		cblogger.Error(err)
 		return "", err
 	}
+	cblogger.Info("services : %s", services)
 
 	getProductsinputfilters := []*pricing.Filter{}
 
