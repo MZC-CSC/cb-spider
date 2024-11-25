@@ -88,13 +88,35 @@ func (DiskHandler *TencentDiskHandler) CreateDisk(diskReqInfo irs.DiskInfo) (irs
 	newDiskId := *response.Response.DiskIdSet[0]
 	cblogger.Debug(newDiskId)
 
-	time.Sleep(1 * time.Second)
+	// time.Sleep(1 * time.Second)
+	// 비동기로 인한 disk not found 를 보완하기 위하여 5번 retry
+	retryCount := 5
+	var diskFound bool
+	var diskInfo irs.DiskInfo
+	var diskInfoErr error
+	hiscallInfo.ElapsedTime = call.Elapsed(start)
+	for i := 0; i < retryCount; i++ {
+		diskInfo, diskInfoErr = DiskHandler.GetDisk(irs.IID{SystemId: newDiskId})
+		if diskInfoErr != nil {
+			cblogger.Debugf("Attempt [%d/5]: Checking disk status after creation. not found \n", i)
 
-	diskInfo, diskInfoErr := DiskHandler.GetDisk(irs.IID{SystemId: newDiskId})
-	if diskInfoErr != nil {
-		cblogger.Error(diskInfoErr)
-		return irs.DiskInfo{}, diskInfoErr
+			//return irs.DiskInfo{}, diskInfoErr
+			time.Sleep(1 * time.Second)
+		} else {
+			cblogger.Debugf("Attempt [%d/5]: Checking disk status after creation.found \n", i)
+			diskFound = true
+			break
+		}
 	}
+	if !diskFound {
+		cblogger.Errorf("Error during DescribeDisks after CreateDisks call: %v\n", diskInfoErr)
+	}
+	calllogger.Info(call.String(hiscallInfo))
+	// diskInfo, diskInfoErr := DiskHandler.GetDisk(irs.IID{SystemId: newDiskId})
+	// if diskInfoErr != nil {
+	// 	cblogger.Error(diskInfoErr)
+	// 	return irs.DiskInfo{}, diskInfoErr
+	// }
 
 	return diskInfo, nil
 }
