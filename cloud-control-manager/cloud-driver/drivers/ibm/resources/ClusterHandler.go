@@ -713,13 +713,16 @@ func (ic *IbmClusterHandler) AddNodeGroup(clusterIID irs.IID, nodeGroupReqInfo i
 		return irs.NodeGroupInfo{}, errors.New(fmt.Sprintf("Failed to Add Node Group. err = %s", getNewNodeGroupErr))
 	}
 
-	// Apply Node Group autosacler options
-	irsCluster.NodeGroupList = append(irsCluster.NodeGroupList, nodeGroupReqInfo)
-	applyAutoScalerOptionErr := ic.applyAutoScalerOptions(irsCluster, irsCluster.IId.SystemId, resourceGroupId)
-	if applyAutoScalerOptionErr != nil {
-		cblogger.Error(applyAutoScalerOptionErr)
-		LoggingError(hiscallInfo, applyAutoScalerOptionErr)
-		return irs.NodeGroupInfo{}, errors.New(fmt.Sprintf("Failed to Add Node Group. err = %s", applyAutoScalerOptionErr))
+	// Apply Node Group autoscaler options
+	if nodeGroupReqInfo.OnAutoScaling {
+		irsCluster.NodeGroupList = append(irsCluster.NodeGroupList, nodeGroupReqInfo)
+
+		applyAutoScalerOptionErr := ic.applyAutoScalerOptions(irsCluster, irsCluster.IId.SystemId, resourceGroupId)
+		if applyAutoScalerOptionErr != nil {
+			cblogger.Error(applyAutoScalerOptionErr)
+			LoggingError(hiscallInfo, applyAutoScalerOptionErr)
+			return irs.NodeGroupInfo{}, errors.New(fmt.Sprintf("Failed to Add Node Group. err = %s", applyAutoScalerOptionErr))
+		}
 	}
 
 	// Get Workers in pool
@@ -1832,12 +1835,16 @@ func (ic *IbmClusterHandler) setClusterInfo(rawCluster kubernetesserviceapiv1.Ge
 		Ctx:            ic.Ctx,
 		SearchService:  ic.SearchService,
 	}
+	// kube-{clusterID} is created by IBM IKS asynchronously after cluster provisioning starts.
+	// It may not exist yet when GetCluster is called immediately after CreateCluster, so treat
+	// "not found" as a non-fatal condition and return an empty list rather than failing.
+	var securityGroups []irs.IID
 	sgInfo, sgInfoErr := sgHandler.GetSecurity(irs.IID{NameId: fmt.Sprintf("kube-%s", rawCluster.Id)})
 	if sgInfoErr != nil {
-		return irs.ClusterInfo{}, sgInfoErr
+		cblogger.Warnf("Worker SG kube-%s not yet available (cluster may still be provisioning): %v", rawCluster.Id, sgInfoErr)
+	} else {
+		securityGroups = []irs.IID{sgInfo.IId}
 	}
-
-	securityGroups := []irs.IID{sgInfo.IId}
 
 	// Convert Created Time
 	createdTime, _ := strfmt.ParseDateTime(rawCluster.CreatedDate)

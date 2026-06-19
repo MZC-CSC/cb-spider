@@ -5,14 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/IBM/go-sdk-core/v5/core"
-	"github.com/IBM/platform-services-go-sdk/globalsearchv2"
-	"github.com/IBM/platform-services-go-sdk/globaltaggingv1"
-	"github.com/IBM/vpc-go-sdk/vpcv1"
-	call "github.com/cloud-barista/cb-spider/cloud-control-manager/cloud-driver/call-log"
-	cdcom "github.com/cloud-barista/cb-spider/cloud-control-manager/cloud-driver/common"
-	idrv "github.com/cloud-barista/cb-spider/cloud-control-manager/cloud-driver/interfaces"
-	irs "github.com/cloud-barista/cb-spider/cloud-control-manager/cloud-driver/interfaces/resources"
 	"io/ioutil"
 	"math/rand"
 	"net/url"
@@ -22,6 +14,15 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/IBM/go-sdk-core/v5/core"
+	"github.com/IBM/platform-services-go-sdk/globalsearchv2"
+	"github.com/IBM/platform-services-go-sdk/globaltaggingv1"
+	"github.com/IBM/vpc-go-sdk/vpcv1"
+	call "github.com/cloud-barista/cb-spider/cloud-control-manager/cloud-driver/call-log"
+	cdcom "github.com/cloud-barista/cb-spider/cloud-control-manager/cloud-driver/common"
+	idrv "github.com/cloud-barista/cb-spider/cloud-control-manager/cloud-driver/interfaces"
+	irs "github.com/cloud-barista/cb-spider/cloud-control-manager/cloud-driver/interfaces/resources"
 )
 
 type IbmVMHandler struct {
@@ -181,6 +182,7 @@ func (vmHandler *IbmVMHandler) StartVM(vmReqInfo irs.VMReqInfo) (irs.VMInfo, err
 		}
 		userData = string(fileDataCloudInit)
 		userData = strings.ReplaceAll(userData, "{{username}}", CBDefaultVmUserName)
+		userData = strings.ReplaceAll(userData, "{{public_key}}", *key.PublicKey)
 	}
 
 	// 2.Create VM
@@ -282,7 +284,7 @@ func (vmHandler *IbmVMHandler) StartVM(vmReqInfo irs.VMReqInfo) (irs.VMInfo, err
 			UserData: &userData,
 		})
 	} else {
-		createInstanceOptions.SetInstancePrototype(&vpcv1.InstancePrototype{
+		instancePrototype := &vpcv1.InstancePrototype{
 			Name: &vmReqInfo.IId.NameId,
 			Image: &vpcv1.ImageIdentity{
 				ID: image.ID,
@@ -309,7 +311,38 @@ func (vmHandler *IbmVMHandler) StartVM(vmReqInfo irs.VMReqInfo) (irs.VMInfo, err
 			},
 			UserData:          &userData,
 			VolumeAttachments: existingDataVolumeAttachments,
-		})
+		}
+
+		// Set boot volume profile and/or capacity if specified
+		rootDiskType := vmReqInfo.RootDiskType
+		rootDiskSize := vmReqInfo.RootDiskSize
+		if (rootDiskType != "" && strings.ToLower(rootDiskType) != "default") ||
+			(rootDiskSize != "" && strings.ToLower(rootDiskSize) != "default") {
+			bootVolume := &vpcv1.VolumePrototypeInstanceByImageContext{}
+
+			// Set profile
+			if rootDiskType != "" && strings.ToLower(rootDiskType) != "default" {
+				bootVolume.Profile = &vpcv1.VolumeProfileIdentityByName{
+					Name: core.StringPtr(strings.ToLower(rootDiskType)),
+				}
+			} else {
+				bootVolume.Profile = &vpcv1.VolumeProfileIdentityByName{
+					Name: core.StringPtr("general-purpose"),
+				}
+			}
+
+			// Set capacity
+			if rootDiskSize != "" && strings.ToLower(rootDiskSize) != "default" {
+				size, _ := strconv.ParseInt(rootDiskSize, 10, 64)
+				bootVolume.Capacity = core.Int64Ptr(size)
+			}
+
+			instancePrototype.BootVolumeAttachment = &vpcv1.VolumeAttachmentPrototypeInstanceByImageContext{
+				Volume: bootVolume,
+			}
+		}
+
+		createInstanceOptions.SetInstancePrototype(instancePrototype)
 	}
 
 	createInstance, _, err := vmHandler.VpcService.CreateInstanceWithContext(vmHandler.Ctx, createInstanceOptions)
@@ -409,34 +442,55 @@ func (vmHandler *IbmVMHandler) StartVM(vmReqInfo irs.VMReqInfo) (irs.VMInfo, err
 		NameId:   *createInstance.Name,
 		SystemId: *createInstance.ID,
 	}
+	const pollIntervalSec = 5
+	const maxWaitSec = 600 // IBM GPU instances (gx3*) can take 5-10 min
 	curRetryCnt := 0
-	maxRetryCnt := 120
+	maxRetryCnt := maxWaitSec / pollIntervalSec
 	for {
 		finalInstance, err := getRawInstance(createInstanceIId, vmHandler.VpcService, vmHandler.Ctx)
 		if err != nil {
 			removeFloatingIpsErr := removeFloatingIps(finalInstance, vmHandler.VpcService, vmHandler.Ctx)
-			// 생성 완료후 running 기다리는중 에러.
-			// 제거 로직을 위해 removeFloatingIp
 			if removeFloatingIpsErr != nil {
-				// 제거 로직을 위해 removeFloatingIp Error => instance에 대한 에러 + removeError + delete error
-				newErrText := err.Error() + removeFloatingIpsErr.Error() + "and failed delete VM"
-				err = errors.New(newErrText)
+				err = errors.New(err.Error() + removeFloatingIpsErr.Error() + "and failed delete VM")
 				createErr := errors.New(fmt.Sprintf("Failed to Create VM. err = %s", err.Error()))
 				cblogger.Error(createErr.Error())
 				LoggingError(hiscallInfo, createErr)
 				return irs.VMInfo{}, createErr
 			}
-			// 제거 로직을 위해 deleteInstance
 			deleteErr := deleteInstance(*createInstance.ID, vmHandler.VpcService, vmHandler.Ctx)
 			if deleteErr != nil {
-				newErrText := err.Error() + deleteErr.Error()
-				err = errors.New(newErrText)
+				err = errors.New(err.Error() + deleteErr.Error())
+			}
+			createErr := errors.New(fmt.Sprintf("Failed to Create VM. err = %s", err.Error()))
+			cblogger.Error(createErr.Error())
+			LoggingError(hiscallInfo, createErr)
+			return irs.VMInfo{}, createErr
+		}
+		if *finalInstance.Status == "failed" {
+			// IBM instance entered failed state — collect StatusReasons for diagnosis
+			var reasonParts []string
+			for _, r := range finalInstance.StatusReasons {
+				if r.Code != nil && r.Message != nil {
+					reasonParts = append(reasonParts, fmt.Sprintf("%s: %s", *r.Code, *r.Message))
+				}
+			}
+			reason := "IBM instance entered failed status"
+			if len(reasonParts) > 0 {
+				reason += " (" + strings.Join(reasonParts, "; ") + ")"
+			}
+			err = errors.New(reason)
+			removeFloatingIpsErr := removeFloatingIps(finalInstance, vmHandler.VpcService, vmHandler.Ctx)
+			if removeFloatingIpsErr != nil {
+				err = errors.New(err.Error() + "; cleanup error: " + removeFloatingIpsErr.Error())
 				createErr := errors.New(fmt.Sprintf("Failed to Create VM. err = %s", err.Error()))
 				cblogger.Error(createErr.Error())
 				LoggingError(hiscallInfo, createErr)
 				return irs.VMInfo{}, createErr
 			}
-			err = errors.New("failed to create VM")
+			deleteErr := deleteInstance(*createInstance.ID, vmHandler.VpcService, vmHandler.Ctx)
+			if deleteErr != nil {
+				err = errors.New(err.Error() + "; cleanup error: " + deleteErr.Error())
+			}
 			createErr := errors.New(fmt.Sprintf("Failed to Create VM. err = %s", err.Error()))
 			cblogger.Error(createErr.Error())
 			LoggingError(hiscallInfo, createErr)
@@ -446,28 +500,17 @@ func (vmHandler *IbmVMHandler) StartVM(vmReqInfo irs.VMReqInfo) (irs.VMInfo, err
 			finalInstanceInfo, err := vmHandler.setVmInfo(finalInstance)
 			if err != nil {
 				removeFloatingIpsErr := removeFloatingIps(finalInstance, vmHandler.VpcService, vmHandler.Ctx)
-				// 생성 완료후 running 기다리는중 에러.
-				// 제거 로직을 위해 removeFloatingIp
 				if removeFloatingIpsErr != nil {
-					// 제거 로직을 위해 removeFloatingIp Error => instance에 대한 에러 + removeError + delete error
-					newErrText := err.Error() + removeFloatingIpsErr.Error() + "and failed delete VM"
-					err = errors.New(newErrText)
+					err = errors.New(err.Error() + removeFloatingIpsErr.Error() + "and failed delete VM")
 					createErr := errors.New(fmt.Sprintf("Failed to Create VM. err = %s", err.Error()))
 					cblogger.Error(createErr.Error())
 					LoggingError(hiscallInfo, createErr)
 					return irs.VMInfo{}, createErr
 				}
-				// 제거 로직을 위해 deleteInstance
 				deleteErr := deleteInstance(*createInstance.ID, vmHandler.VpcService, vmHandler.Ctx)
 				if deleteErr != nil {
-					newErrText := err.Error() + deleteErr.Error()
-					err = errors.New(newErrText)
-					createErr := errors.New(fmt.Sprintf("Failed to Create VM. err = %s", err.Error()))
-					cblogger.Error(createErr.Error())
-					LoggingError(hiscallInfo, createErr)
-					return irs.VMInfo{}, createErr
+					err = errors.New(err.Error() + deleteErr.Error())
 				}
-				err = errors.New("failed to create VM")
 				createErr := errors.New(fmt.Sprintf("Failed to Create VM. err = %s", err.Error()))
 				cblogger.Error(createErr.Error())
 				LoggingError(hiscallInfo, createErr)
@@ -480,32 +523,21 @@ func (vmHandler *IbmVMHandler) StartVM(vmReqInfo irs.VMReqInfo) (irs.VMInfo, err
 			return finalInstanceInfo, nil
 		}
 		curRetryCnt++
-		time.Sleep(1 * time.Second)
+		time.Sleep(time.Duration(pollIntervalSec) * time.Second)
 		if curRetryCnt > maxRetryCnt {
-			err = errors.New(fmt.Sprintf("failed to create VM, exceeded maximum retry count %d", maxRetryCnt))
+			err = errors.New(fmt.Sprintf("IBM instance did not reach running status within %d seconds (last status: %s)", maxWaitSec, *finalInstance.Status))
 			removeFloatingIpsErr := removeFloatingIps(finalInstance, vmHandler.VpcService, vmHandler.Ctx)
-			// 생성 완료후 running 기다리는중 에러.
-			// 제거 로직을 위해 removeFloatingIp
 			if removeFloatingIpsErr != nil {
-				// 제거 로직을 위해 removeFloatingIp Error => instance에 대한 에러 + removeError + delete error
-				newErrText := err.Error() + removeFloatingIpsErr.Error() + "and failed delete VM"
-				err = errors.New(newErrText)
+				err = errors.New(err.Error() + removeFloatingIpsErr.Error() + "and failed delete VM")
 				createErr := errors.New(fmt.Sprintf("Failed to Create VM. err = %s", err.Error()))
 				cblogger.Error(createErr.Error())
 				LoggingError(hiscallInfo, createErr)
 				return irs.VMInfo{}, createErr
 			}
-			// 제거 로직을 위해 deleteInstance
 			deleteErr := deleteInstance(*createInstance.ID, vmHandler.VpcService, vmHandler.Ctx)
 			if deleteErr != nil {
-				newErrText := err.Error() + deleteErr.Error()
-				err = errors.New(newErrText)
-				createErr := errors.New(fmt.Sprintf("Failed to Create VM. err = %s", err.Error()))
-				cblogger.Error(createErr.Error())
-				LoggingError(hiscallInfo, createErr)
-				return irs.VMInfo{}, createErr
+				err = errors.New(err.Error() + deleteErr.Error())
 			}
-			err = errors.New("failed to create VM")
 			createErr := errors.New(fmt.Sprintf("Failed to Create VM. err = %s", err.Error()))
 			cblogger.Error(createErr.Error())
 			LoggingError(hiscallInfo, createErr)
@@ -904,10 +936,6 @@ func checkVmIID(vmIID irs.IID) error {
 }
 
 func checkVMReqInfo(vmReqInfo irs.VMReqInfo) error {
-	err := notSupportRootDiskCustom(vmReqInfo)
-	if err != nil {
-		return err
-	}
 	if vmReqInfo.IId.NameId == "" {
 		return errors.New("invalid VM IID")
 	}
@@ -1319,6 +1347,10 @@ func (vmHandler *IbmVMHandler) setVmInfo(instance vpcv1.Instance) (irs.VMInfo, e
 	}
 
 	vmInfo.RootDiskType = "general-purpose"
+	rawBootVolume, getBootVolumeErr := getRawVolume(irs.IID{SystemId: *instance.BootVolumeAttachment.Volume.ID}, vmHandler.VpcService, vmHandler.Ctx)
+	if getBootVolumeErr == nil && rawBootVolume.Profile != nil && rawBootVolume.Profile.Name != nil {
+		vmInfo.RootDiskType = *rawBootVolume.Profile.Name
+	}
 
 	vmInfo.VMBootDisk = *instance.BootVolumeAttachment.Volume.ID
 	rawBootDisk, getRawBootDiskErr := getRawDisk(vmHandler.VpcService, vmHandler.Ctx, irs.IID{SystemId: vmInfo.VMBootDisk})
@@ -1381,16 +1413,6 @@ func (vmHandler *IbmVMHandler) checkFloatingIPName(floatingIPName string) (exist
 		}
 	}
 	return false, nil
-}
-
-func notSupportRootDiskCustom(vmReqInfo irs.VMReqInfo) error {
-	if vmReqInfo.RootDiskType != "" && strings.ToLower(vmReqInfo.RootDiskType) != "default" {
-		return errors.New("IBM-VPC_CANNOT_CHANGE_ROOTDISKTYPE")
-	}
-	if vmReqInfo.RootDiskSize != "" && strings.ToLower(vmReqInfo.RootDiskSize) != "default" {
-		return errors.New("IBM-VPC_CANNOT_CHANGE_ROOTDISKSIZE")
-	}
-	return nil
 }
 
 type vmInfoWithError struct {

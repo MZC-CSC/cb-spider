@@ -1,0 +1,756 @@
+// Cloud Driver Interface of CB-Spider.
+// The CB-Spider is a sub-Framework of the Cloud-Barista Multi-Cloud Project.
+// The CB-Spider Mission is to connect all the clouds with a single interface.
+//
+//      * Cloud-Barista: https://github.com/cloud-barista
+//
+// This is Resouces interfaces of Cloud Driver.
+//
+// by CB-Spider Team, April 2026.
+
+package resources
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go/service/rds"
+	call "github.com/cloud-barista/cb-spider/cloud-control-manager/cloud-driver/call-log"
+	idrv "github.com/cloud-barista/cb-spider/cloud-control-manager/cloud-driver/interfaces"
+	irs "github.com/cloud-barista/cb-spider/cloud-control-manager/cloud-driver/interfaces/resources"
+)
+
+type AwsRDBMSHandler struct {
+	Region     idrv.RegionInfo
+	Client     *rds.RDS
+	EC2Client  *ec2.EC2
+	TagHandler *AwsTagHandler
+}
+
+type awsRDBMSEngine struct {
+	cbName  string
+	awsName string
+}
+
+// GetMetaInfo returns metadata about AWS RDS capabilities.
+// Supported engine versions are fetched dynamically via DescribeDBEngineVersions.
+func (handler *AwsRDBMSHandler) GetMetaInfo(dbEngine string) (irs.RDBMSMetaInfo, error) {
+	cblogger.Debug("AWS RDS GetMetaInfo() called")
+
+	hiscallInfo := GetCallLogScheme(handler.Region, call.RDBMS, "GetMetaInfo", "DescribeDBEngineVersions()")
+	start := call.Start()
+	requestedEngine, err := irs.NormalizeRDBMSEngine(dbEngine)
+	if err != nil {
+		return irs.RDBMSMetaInfo{}, err
+	}
+
+	// CB-Spider engine name → AWS API engine name
+	allEngineNames := []awsRDBMSEngine{
+		{"mysql", "mysql"},
+		{"mariadb", "mariadb"},
+		{"postgresql", "postgres"},
+	}
+	engineNames := make([]awsRDBMSEngine, 0, 1)
+	for _, eng := range allEngineNames {
+		if eng.cbName == requestedEngine {
+			engineNames = append(engineNames, eng)
+			break
+		}
+	}
+	if len(engineNames) == 0 {
+		return irs.RDBMSMetaInfo{}, fmt.Errorf("DBEngine '%s' is not supported by AWS RDS", requestedEngine)
+	}
+
+	supportedEngines := map[string][]string{}
+	storageLookupVersions := map[string][]string{}
+
+	for _, eng := range engineNames {
+		input := &rds.DescribeDBEngineVersionsInput{
+			Engine: aws.String(eng.awsName),
+		}
+
+		majorSet := map[string]bool{}
+		latestVersionByMajor := map[string]string{}
+		err := handler.Client.DescribeDBEngineVersionsPages(input, func(page *rds.DescribeDBEngineVersionsOutput, lastPage bool) bool {
+			for _, v := range page.DBEngineVersions {
+				if v.EngineVersion == nil {
+					continue
+				}
+				major := awsRDBMSMajorVersion(eng.awsName, *v.EngineVersion)
+				if major != "" {
+					majorSet[major] = true
+					if latestVersionByMajor[major] == "" || awsCompareVersionStrings(*v.EngineVersion, latestVersionByMajor[major]) > 0 {
+						latestVersionByMajor[major] = *v.EngineVersion
+					}
+				}
+			}
+			return true
+		})
+		if err != nil {
+			hiscallInfo.ElapsedTime = call.Elapsed(start)
+			LoggingError(hiscallInfo, err)
+			return irs.RDBMSMetaInfo{}, fmt.Errorf("DescribeDBEngineVersions failed for engine %s: %w", eng.awsName, err)
+		}
+
+		versions := make([]string, 0, len(majorSet))
+		for v := range majorSet {
+			versions = append(versions, v)
+		}
+		// Sort semantically so "10.6" < "10.11"
+		sort.Slice(versions, func(i, j int) bool {
+			pi := strings.Split(versions[i], ".")
+			pj := strings.Split(versions[j], ".")
+			for k := 0; k < len(pi) && k < len(pj); k++ {
+				ni, _ := strconv.Atoi(pi[k])
+				nj, _ := strconv.Atoi(pj[k])
+				if ni != nj {
+					return ni < nj
+				}
+			}
+			return len(pi) < len(pj)
+		})
+		if len(versions) > 0 {
+			supportedEngines[eng.cbName] = versions
+		}
+
+		storageVersions := make([]string, 0, len(latestVersionByMajor))
+		for _, version := range latestVersionByMajor {
+			storageVersions = append(storageVersions, version)
+		}
+		sort.Slice(storageVersions, func(i, j int) bool {
+			return awsCompareVersionStrings(storageVersions[i], storageVersions[j]) < 0
+		})
+		storageLookupVersions[eng.awsName] = storageVersions
+	}
+	instanceSpecOptions, storageTypeOptions, storageSizeRange, err := handler.fetchRDBMSInstanceOptions(engineNames, storageLookupVersions)
+	if err != nil {
+		hiscallInfo.ElapsedTime = call.Elapsed(start)
+		LoggingError(hiscallInfo, err)
+		return irs.RDBMSMetaInfo{}, fmt.Errorf("DescribeOrderableDBInstanceOptions failed: %w", err)
+	}
+
+	metaInfo, err := irs.BuildRDBMSMetaInfo(requestedEngine, supportedEngines, instanceSpecOptions, storageTypeOptions, storageSizeRange, true, true, true, true, true, "0-35", true, true, true, true)
+	if err != nil {
+		return irs.RDBMSMetaInfo{}, err
+	}
+
+	hiscallInfo.ElapsedTime = call.Elapsed(start)
+	calllogger.Info(call.String(hiscallInfo))
+
+	return metaInfo, nil
+}
+
+func (handler *AwsRDBMSHandler) fetchRDBMSInstanceOptions(engineNames []awsRDBMSEngine, storageLookupVersions map[string][]string) (map[string][]string, map[string][]string, irs.StorageSizeRange, error) {
+	instanceSpecOptions := map[string][]string{}
+	storageTypeOptions := map[string][]string{}
+	var minStorage int64
+	var maxStorage int64
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+
+	for _, eng := range engineNames {
+		lookupVersions := storageLookupVersions[eng.awsName]
+		if len(lookupVersions) == 0 {
+			return nil, nil, irs.StorageSizeRange{}, fmt.Errorf("engine %s has no versions for storage lookup", eng.awsName)
+		}
+		instanceSpecSet := map[string]bool{}
+		storageSet := map[string]bool{}
+		for _, engineVersion := range lookupVersions {
+			input := &rds.DescribeOrderableDBInstanceOptionsInput{
+				Engine:        aws.String(eng.awsName),
+				EngineVersion: aws.String(engineVersion),
+				MaxRecords:    aws.Int64(100),
+			}
+			err := handler.Client.DescribeOrderableDBInstanceOptionsPagesWithContext(ctx, input, func(page *rds.DescribeOrderableDBInstanceOptionsOutput, lastPage bool) bool {
+				for _, option := range page.OrderableDBInstanceOptions {
+					if option.DBInstanceClass != nil && *option.DBInstanceClass != "" {
+						instanceSpecSet[*option.DBInstanceClass] = true
+					}
+					if option.StorageType != nil && *option.StorageType != "" {
+						storageSet[*option.StorageType] = true
+					}
+					if option.MinStorageSize != nil && *option.MinStorageSize > 0 && (minStorage == 0 || *option.MinStorageSize < minStorage) {
+						minStorage = *option.MinStorageSize
+					}
+					if option.MaxStorageSize != nil && *option.MaxStorageSize > maxStorage {
+						maxStorage = *option.MaxStorageSize
+					}
+				}
+				return true
+			})
+			if err != nil {
+				return nil, nil, irs.StorageSizeRange{}, fmt.Errorf("engine %s version %s: %w", eng.awsName, engineVersion, err)
+			}
+		}
+
+		instanceSpecs := make([]string, 0, len(instanceSpecSet))
+		for instanceSpec := range instanceSpecSet {
+			instanceSpecs = append(instanceSpecs, instanceSpec)
+		}
+		sort.Strings(instanceSpecs)
+		if len(instanceSpecs) > 0 {
+			instanceSpecOptions[eng.cbName] = instanceSpecs
+		}
+
+		storageTypes := make([]string, 0, len(storageSet))
+		for storageType := range storageSet {
+			storageTypes = append(storageTypes, storageType)
+		}
+		sort.Strings(storageTypes)
+		if len(storageTypes) == 0 {
+			return nil, nil, irs.StorageSizeRange{}, fmt.Errorf("engine %s returned no storage types", eng.awsName)
+		}
+		storageTypeOptions[eng.cbName] = storageTypes
+	}
+
+	if minStorage == 0 || maxStorage == 0 {
+		return nil, nil, irs.StorageSizeRange{}, fmt.Errorf("storage size range is empty")
+	}
+
+	return instanceSpecOptions, storageTypeOptions, irs.StorageSizeRange{Min: minStorage, Max: maxStorage}, nil
+}
+
+func awsCompareVersionStrings(leftVersion, rightVersion string) int {
+	leftParts := strings.Split(leftVersion, ".")
+	rightParts := strings.Split(rightVersion, ".")
+	maxLen := len(leftParts)
+	if len(rightParts) > maxLen {
+		maxLen = len(rightParts)
+	}
+
+	for index := 0; index < maxLen; index++ {
+		leftValue := 0
+		if index < len(leftParts) {
+			leftValue, _ = strconv.Atoi(leftParts[index])
+		}
+		rightValue := 0
+		if index < len(rightParts) {
+			rightValue, _ = strconv.Atoi(rightParts[index])
+		}
+		if leftValue < rightValue {
+			return -1
+		}
+		if leftValue > rightValue {
+			return 1
+		}
+	}
+	return 0
+}
+
+// awsRDBMSMajorVersion extracts the major version string from an AWS engine version string.
+// PostgreSQL uses a single-component major version (e.g., "14" from "14.5").
+// MySQL and MariaDB use a two-component major version (e.g., "8.0" from "8.0.32").
+func awsRDBMSMajorVersion(awsEngine, versionStr string) string {
+	parts := strings.SplitN(versionStr, ".", 3)
+	if awsEngine == "postgres" {
+		if len(parts) >= 1 && parts[0] != "" {
+			return parts[0]
+		}
+	} else {
+		if len(parts) >= 2 && parts[0] != "" && parts[1] != "" {
+			return parts[0] + "." + parts[1]
+		}
+	}
+	return ""
+}
+
+// ListIID returns a list of RDBMS IIDs.
+func (handler *AwsRDBMSHandler) ListIID() ([]*irs.IID, error) {
+	hiscallInfo := GetCallLogScheme(handler.Region, call.RDBMS, "ListIID", "DescribeDBInstances()")
+	start := call.Start()
+
+	input := &rds.DescribeDBInstancesInput{}
+	var iidList []*irs.IID
+
+	err := handler.Client.DescribeDBInstancesPages(input, func(page *rds.DescribeDBInstancesOutput, lastPage bool) bool {
+		for _, dbInstance := range page.DBInstances {
+			iid := &irs.IID{
+				NameId:   aws.StringValue(dbInstance.DBInstanceIdentifier),
+				SystemId: aws.StringValue(dbInstance.DBInstanceIdentifier),
+			}
+			iidList = append(iidList, iid)
+		}
+		return true
+	})
+
+	hiscallInfo.ElapsedTime = call.Elapsed(start)
+	if err != nil {
+		cblogger.Error(err)
+		LoggingError(hiscallInfo, err)
+		return nil, err
+	}
+	calllogger.Info(call.String(hiscallInfo))
+
+	return iidList, nil
+}
+
+// CreateRDBMS creates a new RDS instance.
+func (handler *AwsRDBMSHandler) CreateRDBMS(rdbmsReqInfo irs.RDBMSInfo) (irs.RDBMSInfo, error) {
+	hiscallInfo := GetCallLogScheme(handler.Region, call.RDBMS, rdbmsReqInfo.IId.NameId, "CreateDBInstance()")
+	start := call.Start()
+
+	// Validate required fields
+	if rdbmsReqInfo.IId.NameId == "" {
+		return irs.RDBMSInfo{}, errors.New("RDBMS NameId is required")
+	}
+	if rdbmsReqInfo.DBEngine == "" {
+		return irs.RDBMSInfo{}, errors.New("DBEngine is required")
+	}
+	if rdbmsReqInfo.DBEngineVersion == "" {
+		return irs.RDBMSInfo{}, errors.New("DBEngineVersion is required")
+	}
+	if rdbmsReqInfo.DBInstanceSpec == "" {
+		return irs.RDBMSInfo{}, errors.New("DBInstanceSpec is required")
+	}
+	if rdbmsReqInfo.MasterUserName == "" {
+		return irs.RDBMSInfo{}, errors.New("MasterUserName is required")
+	}
+	if rdbmsReqInfo.MasterUserPassword == "" {
+		return irs.RDBMSInfo{}, errors.New("MasterUserPassword is required")
+	}
+	if rdbmsReqInfo.StorageSize == "" {
+		return irs.RDBMSInfo{}, errors.New("StorageSize is required")
+	}
+
+	storageSize, err := strconv.ParseInt(rdbmsReqInfo.StorageSize, 10, 64)
+	if err != nil {
+		return irs.RDBMSInfo{}, fmt.Errorf("invalid StorageSize: %s", rdbmsReqInfo.StorageSize)
+	}
+
+	// Ensure VPC has EnableDnsHostnames=true (required for RDS endpoint resolution)
+	if rdbmsReqInfo.VpcIID.SystemId != "" {
+		if err := handler.ensureVPCDnsHostnames(rdbmsReqInfo.VpcIID.SystemId); err != nil {
+			return irs.RDBMSInfo{}, fmt.Errorf("VPC DNS hostname check failed: %w", err)
+		}
+	}
+
+	// Create DB Subnet Group if VPC and Subnets are provided
+	subnetGroupName := ""
+	if rdbmsReqInfo.VpcIID.SystemId != "" && len(rdbmsReqInfo.SubnetIIDs) > 0 {
+		subnetGroupName = "cb-spider-" + rdbmsReqInfo.IId.NameId
+		err := handler.createDBSubnetGroup(subnetGroupName, rdbmsReqInfo.SubnetIIDs)
+		if err != nil {
+			return irs.RDBMSInfo{}, fmt.Errorf("failed to create DB subnet group: %w", err)
+		}
+	}
+
+	// Build CreateDBInstance input
+	input := &rds.CreateDBInstanceInput{
+		DBInstanceIdentifier: aws.String(rdbmsReqInfo.IId.NameId),
+		DBInstanceClass:      aws.String(rdbmsReqInfo.DBInstanceSpec),
+		Engine:               aws.String(rdbmsReqInfo.DBEngine),
+		EngineVersion:        aws.String(rdbmsReqInfo.DBEngineVersion),
+		MasterUsername:       aws.String(rdbmsReqInfo.MasterUserName),
+		MasterUserPassword:   aws.String(rdbmsReqInfo.MasterUserPassword),
+		AllocatedStorage:     aws.Int64(storageSize),
+	}
+
+	// DB Subnet Group
+	if subnetGroupName != "" {
+		input.DBSubnetGroupName = aws.String(subnetGroupName)
+	}
+
+	// Security Groups
+	if len(rdbmsReqInfo.SecurityGroupIIDs) > 0 {
+		var sgIDs []*string
+		for _, sg := range rdbmsReqInfo.SecurityGroupIIDs {
+			sgIDs = append(sgIDs, aws.String(sg.SystemId))
+		}
+		input.VpcSecurityGroupIds = sgIDs
+	}
+
+	// Storage Type (Advanced - default: gp2)
+	// io1/io2: Iops is required. gp3: Iops is optional (default 3000).
+	if rdbmsReqInfo.StorageType != "" {
+		input.StorageType = aws.String(rdbmsReqInfo.StorageType)
+	}
+	st := rdbmsReqInfo.StorageType
+	if st == "io1" || st == "io2" {
+		if rdbmsReqInfo.Iops == "" {
+			return irs.RDBMSInfo{}, fmt.Errorf("Iops is required for StorageType %q (AWS RDS)", st)
+		}
+	}
+	if rdbmsReqInfo.Iops != "" {
+		iops, err := strconv.ParseInt(rdbmsReqInfo.Iops, 10, 64)
+		if err != nil {
+			return irs.RDBMSInfo{}, fmt.Errorf("invalid Iops value: %s", rdbmsReqInfo.Iops)
+		}
+		input.Iops = aws.Int64(iops)
+	}
+	// High Availability (Multi-AZ)
+	input.MultiAZ = aws.Bool(rdbmsReqInfo.HighAvailability)
+
+	// Backup: -1 = not set (use AWS default), 0 = disable backup, >0 = explicit retention days
+	if rdbmsReqInfo.BackupRetentionDays >= 0 {
+		input.BackupRetentionPeriod = aws.Int64(int64(rdbmsReqInfo.BackupRetentionDays))
+	}
+	// BackupTime (PreferredBackupWindow) is not configurable at creation via Spider (AWS auto-assigns)
+
+	// Public Access
+	input.PubliclyAccessible = aws.Bool(rdbmsReqInfo.PublicAccess)
+
+	// Encryption is not configurable at creation via Spider (AWS uses default encryption settings)
+
+	// Deletion Protection
+	input.DeletionProtection = aws.Bool(rdbmsReqInfo.DeletionProtection)
+
+	// Tags
+	var rdsTags []*rds.Tag
+	for _, tag := range rdbmsReqInfo.TagList {
+		rdsTags = append(rdsTags, &rds.Tag{
+			Key:   aws.String(tag.Key),
+			Value: aws.String(tag.Value),
+		})
+	}
+	// Add Name tag
+	rdsTags = append(rdsTags, &rds.Tag{
+		Key:   aws.String("Name"),
+		Value: aws.String(rdbmsReqInfo.IId.NameId),
+	})
+	input.Tags = rdsTags
+
+	// Create the RDS instance
+	result, err := handler.Client.CreateDBInstance(input)
+	hiscallInfo.ElapsedTime = call.Elapsed(start)
+	if err != nil {
+		cblogger.Error(err)
+		LoggingError(hiscallInfo, err)
+		// Clean up subnet group on failure
+		if subnetGroupName != "" {
+			handler.deleteDBSubnetGroup(subnetGroupName)
+		}
+		return irs.RDBMSInfo{}, err
+	}
+	calllogger.Info(call.String(hiscallInfo))
+
+	rdbmsInfo := handler.convertDBInstanceToRDBMSInfo(result.DBInstance)
+	return rdbmsInfo, nil
+}
+
+// ListRDBMS returns a list of all RDBMS instances.
+func (handler *AwsRDBMSHandler) ListRDBMS() ([]*irs.RDBMSInfo, error) {
+	hiscallInfo := GetCallLogScheme(handler.Region, call.RDBMS, "ListRDBMS", "DescribeDBInstances()")
+	start := call.Start()
+
+	input := &rds.DescribeDBInstancesInput{}
+	var rdbmsList []*irs.RDBMSInfo
+
+	err := handler.Client.DescribeDBInstancesPages(input, func(page *rds.DescribeDBInstancesOutput, lastPage bool) bool {
+		for _, dbInstance := range page.DBInstances {
+			rdbmsInfo := handler.convertDBInstanceToRDBMSInfo(dbInstance)
+			rdbmsList = append(rdbmsList, &rdbmsInfo)
+		}
+		return true
+	})
+
+	hiscallInfo.ElapsedTime = call.Elapsed(start)
+	if err != nil {
+		cblogger.Error(err)
+		LoggingError(hiscallInfo, err)
+		return nil, err
+	}
+	calllogger.Info(call.String(hiscallInfo))
+
+	return rdbmsList, nil
+}
+
+// GetRDBMS returns the details of a specific RDBMS instance.
+func (handler *AwsRDBMSHandler) GetRDBMS(rdbmsIID irs.IID) (irs.RDBMSInfo, error) {
+	hiscallInfo := GetCallLogScheme(handler.Region, call.RDBMS, rdbmsIID.NameId, "DescribeDBInstances()")
+	start := call.Start()
+
+	input := &rds.DescribeDBInstancesInput{
+		DBInstanceIdentifier: aws.String(rdbmsIID.SystemId),
+	}
+
+	result, err := handler.Client.DescribeDBInstances(input)
+	hiscallInfo.ElapsedTime = call.Elapsed(start)
+	if err != nil {
+		cblogger.Error(err)
+		LoggingError(hiscallInfo, err)
+		return irs.RDBMSInfo{}, err
+	}
+	calllogger.Info(call.String(hiscallInfo))
+
+	if len(result.DBInstances) == 0 {
+		return irs.RDBMSInfo{}, fmt.Errorf("RDBMS instance not found: %s", rdbmsIID.SystemId)
+	}
+
+	rdbmsInfo := handler.convertDBInstanceToRDBMSInfo(result.DBInstances[0])
+	return rdbmsInfo, nil
+}
+
+// DeleteRDBMS deletes an RDBMS instance.
+func (handler *AwsRDBMSHandler) DeleteRDBMS(rdbmsIID irs.IID) (bool, error) {
+	hiscallInfo := GetCallLogScheme(handler.Region, call.RDBMS, rdbmsIID.NameId, "DeleteDBInstance()")
+	start := call.Start()
+
+	// First, get the instance to find the subnet group name
+	descInput := &rds.DescribeDBInstancesInput{
+		DBInstanceIdentifier: aws.String(rdbmsIID.SystemId),
+	}
+	descResult, err := handler.Client.DescribeDBInstances(descInput)
+	if err != nil {
+		cblogger.Error(err)
+		LoggingError(hiscallInfo, err)
+		return false, err
+	}
+
+	var subnetGroupName string
+	if len(descResult.DBInstances) > 0 && descResult.DBInstances[0].DBSubnetGroup != nil {
+		subnetGroupName = aws.StringValue(descResult.DBInstances[0].DBSubnetGroup.DBSubnetGroupName)
+	}
+
+	// Disable deletion protection if enabled
+	if len(descResult.DBInstances) > 0 && aws.BoolValue(descResult.DBInstances[0].DeletionProtection) {
+		modInput := &rds.ModifyDBInstanceInput{
+			DBInstanceIdentifier: aws.String(rdbmsIID.SystemId),
+			DeletionProtection:   aws.Bool(false),
+		}
+		_, err := handler.Client.ModifyDBInstance(modInput)
+		if err != nil {
+			cblogger.Error(err)
+			LoggingError(hiscallInfo, err)
+			return false, fmt.Errorf("failed to disable deletion protection: %w", err)
+		}
+	}
+
+	// Delete the DB instance
+	input := &rds.DeleteDBInstanceInput{
+		DBInstanceIdentifier:   aws.String(rdbmsIID.SystemId),
+		SkipFinalSnapshot:      aws.Bool(true),
+		DeleteAutomatedBackups: aws.Bool(true),
+	}
+
+	_, err = handler.Client.DeleteDBInstance(input)
+	hiscallInfo.ElapsedTime = call.Elapsed(start)
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok {
+			cblogger.Error(aerr.Error())
+		}
+		cblogger.Error(err)
+		LoggingError(hiscallInfo, err)
+		return false, err
+	}
+	calllogger.Info(call.String(hiscallInfo))
+
+	// Wait for deletion then clean up subnet group
+	if subnetGroupName != "" && strings.HasPrefix(subnetGroupName, "cb-spider-") {
+		cblogger.Infof("Waiting for DB instance deletion to clean up subnet group: %s", subnetGroupName)
+		err := handler.waitForDBInstanceDeleted(rdbmsIID.SystemId)
+		if err != nil {
+			cblogger.Warnf("Failed to wait for DB instance deletion: %v", err)
+		} else {
+			handler.deleteDBSubnetGroup(subnetGroupName)
+		}
+	}
+
+	return true, nil
+}
+
+// ===== Helper Functions =====
+
+// ensureVPCDnsHostnames checks whether the VPC has EnableDnsHostnames enabled.
+// If not, it automatically enables it (required for RDS endpoint DNS resolution)
+// and logs the action.
+func (handler *AwsRDBMSHandler) ensureVPCDnsHostnames(vpcID string) error {
+	// 1. Check current EnableDnsHostnames setting
+	descOut, err := handler.EC2Client.DescribeVpcAttribute(&ec2.DescribeVpcAttributeInput{
+		VpcId:     aws.String(vpcID),
+		Attribute: aws.String("enableDnsHostnames"),
+	})
+	if err != nil {
+		return fmt.Errorf("DescribeVpcAttribute(enableDnsHostnames) failed for VPC %s: %w", vpcID, err)
+	}
+
+	if descOut.EnableDnsHostnames != nil && aws.BoolValue(descOut.EnableDnsHostnames.Value) {
+		// Already enabled — nothing to do
+		return nil
+	}
+
+	// 2. EnableDnsHostnames is false — automatically set to true
+	cblogger.Infof("[VPC DNS] VPC '%s' has EnableDnsHostnames=false. Enabling it automatically for RDS endpoint resolution.", vpcID)
+
+	_, err = handler.EC2Client.ModifyVpcAttribute(&ec2.ModifyVpcAttributeInput{
+		VpcId: aws.String(vpcID),
+		EnableDnsHostnames: &ec2.AttributeBooleanValue{
+			Value: aws.Bool(true),
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("ModifyVpcAttribute(EnableDnsHostnames=true) failed for VPC %s: %w", vpcID, err)
+	}
+
+	cblogger.Infof("[VPC DNS] VPC '%s' EnableDnsHostnames has been set to true. RDS DNS endpoint resolution is now available.", vpcID)
+	return nil
+}
+
+func (handler *AwsRDBMSHandler) createDBSubnetGroup(groupName string, subnetIIDs []irs.IID) error {
+	var subnetIDs []*string
+	for _, subnet := range subnetIIDs {
+		subnetIDs = append(subnetIDs, aws.String(subnet.SystemId))
+	}
+
+	input := &rds.CreateDBSubnetGroupInput{
+		DBSubnetGroupName:        aws.String(groupName),
+		DBSubnetGroupDescription: aws.String("CB-Spider RDBMS subnet group for " + groupName),
+		SubnetIds:                subnetIDs,
+	}
+
+	_, err := handler.Client.CreateDBSubnetGroup(input)
+	return err
+}
+
+func (handler *AwsRDBMSHandler) deleteDBSubnetGroup(groupName string) {
+	input := &rds.DeleteDBSubnetGroupInput{
+		DBSubnetGroupName: aws.String(groupName),
+	}
+	_, err := handler.Client.DeleteDBSubnetGroup(input)
+	if err != nil {
+		cblogger.Warnf("Failed to delete DB subnet group %s: %v", groupName, err)
+	}
+}
+
+func (handler *AwsRDBMSHandler) waitForDBInstanceDeleted(dbInstanceId string) error {
+	maxWait := 30 * time.Minute
+	pollInterval := 30 * time.Second
+	deadline := time.Now().Add(maxWait)
+
+	for time.Now().Before(deadline) {
+		input := &rds.DescribeDBInstancesInput{
+			DBInstanceIdentifier: aws.String(dbInstanceId),
+		}
+		_, err := handler.Client.DescribeDBInstances(input)
+		if err != nil {
+			if aerr, ok := err.(awserr.Error); ok {
+				if aerr.Code() == rds.ErrCodeDBInstanceNotFoundFault {
+					return nil // Instance deleted
+				}
+			}
+			return err
+		}
+		time.Sleep(pollInterval)
+	}
+	return fmt.Errorf("timeout waiting for DB instance %s to be deleted", dbInstanceId)
+}
+
+func (handler *AwsRDBMSHandler) convertDBInstanceToRDBMSInfo(dbInstance *rds.DBInstance) irs.RDBMSInfo {
+	rdbmsInfo := irs.RDBMSInfo{}
+
+	dbId := aws.StringValue(dbInstance.DBInstanceIdentifier)
+	rdbmsInfo.IId = irs.IID{
+		NameId:   dbId,
+		SystemId: dbId,
+	}
+
+	// VPC
+	if dbInstance.DBSubnetGroup != nil {
+		rdbmsInfo.VpcIID = irs.IID{
+			SystemId: aws.StringValue(dbInstance.DBSubnetGroup.VpcId),
+		}
+		// Subnets
+		for _, subnet := range dbInstance.DBSubnetGroup.Subnets {
+			rdbmsInfo.SubnetIIDs = append(rdbmsInfo.SubnetIIDs, irs.IID{
+				SystemId: aws.StringValue(subnet.SubnetIdentifier),
+			})
+		}
+	}
+
+	// DB Engine
+	rdbmsInfo.DBEngine = aws.StringValue(dbInstance.Engine)
+	rdbmsInfo.DBEngineVersion = aws.StringValue(dbInstance.EngineVersion)
+
+	// Instance Spec
+	rdbmsInfo.DBInstanceSpec = aws.StringValue(dbInstance.DBInstanceClass)
+	if aws.BoolValue(dbInstance.MultiAZ) {
+		rdbmsInfo.DBInstanceType = "Multi-AZ"
+	} else {
+		rdbmsInfo.DBInstanceType = "Primary"
+	}
+
+	// Storage
+	rdbmsInfo.StorageType = aws.StringValue(dbInstance.StorageType)
+	if dbInstance.AllocatedStorage != nil {
+		rdbmsInfo.StorageSize = strconv.FormatInt(aws.Int64Value(dbInstance.AllocatedStorage), 10)
+	}
+	if dbInstance.Iops != nil {
+		rdbmsInfo.Iops = strconv.FormatInt(aws.Int64Value(dbInstance.Iops), 10)
+	}
+	// Security Groups
+	for _, sg := range dbInstance.VpcSecurityGroups {
+		rdbmsInfo.SecurityGroupIIDs = append(rdbmsInfo.SecurityGroupIIDs, irs.IID{
+			SystemId: aws.StringValue(sg.VpcSecurityGroupId),
+		})
+	}
+
+	// Port
+	// Authentication
+	rdbmsInfo.MasterUserName = aws.StringValue(dbInstance.MasterUsername)
+	// MasterUserPassword is never returned by AWS API
+
+	// High Availability
+	rdbmsInfo.HighAvailability = aws.BoolValue(dbInstance.MultiAZ)
+
+	// Backup
+	if dbInstance.BackupRetentionPeriod != nil {
+		rdbmsInfo.BackupRetentionDays = int(aws.Int64Value(dbInstance.BackupRetentionPeriod))
+	}
+	rdbmsInfo.BackupTime = aws.StringValue(dbInstance.PreferredBackupWindow)
+
+	// Access
+	rdbmsInfo.PublicAccess = aws.BoolValue(dbInstance.PubliclyAccessible)
+	if dbInstance.Endpoint != nil {
+		rdbmsInfo.Endpoint = fmt.Sprintf("%s:%d",
+			aws.StringValue(dbInstance.Endpoint.Address),
+			aws.Int64Value(dbInstance.Endpoint.Port))
+	}
+
+	// Encryption
+	rdbmsInfo.Encryption = aws.BoolValue(dbInstance.StorageEncrypted)
+
+	// Protection
+	rdbmsInfo.DeletionProtection = aws.BoolValue(dbInstance.DeletionProtection)
+
+	// Status
+	rdbmsInfo.Status = convertRDSStatusToRDBMSStatus(aws.StringValue(dbInstance.DBInstanceStatus))
+
+	// Created Time
+	if dbInstance.InstanceCreateTime != nil {
+		rdbmsInfo.CreatedTime = *dbInstance.InstanceCreateTime
+	}
+
+	// KeyValueList - capture CSP-specific data
+	rdbmsInfo.KeyValueList = irs.StructToKeyValueList(dbInstance)
+
+	return rdbmsInfo
+}
+
+func convertRDSStatusToRDBMSStatus(rdsStatus string) irs.RDBMSStatus {
+	switch strings.ToLower(rdsStatus) {
+	case "creating", "backing-up", "modifying", "upgrading", "configuring-enhanced-monitoring",
+		"configuring-iam-database-auth", "configuring-log-exports", "converting-to-vpc",
+		"moving-to-vpc", "rebooting", "renaming", "resetting-master-credentials",
+		"starting", "storage-optimization":
+		return irs.RDBMSCreating
+	case "available":
+		return irs.RDBMSAvailable
+	case "deleting":
+		return irs.RDBMSDeleting
+	case "stopped", "stopping", "storage-full":
+		return irs.RDBMSStopped
+	case "failed", "inaccessible-encryption-credentials", "incompatible-network",
+		"incompatible-option-group", "incompatible-parameters", "incompatible-restore",
+		"restore-error":
+		return irs.RDBMSError
+	default:
+		return irs.RDBMSError
+	}
+}

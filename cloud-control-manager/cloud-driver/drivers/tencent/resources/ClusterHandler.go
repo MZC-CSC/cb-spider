@@ -601,6 +601,12 @@ func getClusterAccessInfo(access_key string, access_secret string, region_id str
 		accessInfo.Endpoint = *res.Response.ClusterExternalEndpoint
 	}
 
+	// If the endpoint is not a valid value (e.g. still a temporary message),
+	// do not expose the kubeconfig — it won't be externally accessible yet.
+	if !strings.Contains(accessInfo.Endpoint, ":") {
+		return accessInfo, nil
+	}
+
 	// (2) Kubeconfig
 	resKubeconfig, err := tencent.GetClusterKubeconfig(access_key, access_secret, region_id, cluster_id)
 	if err != nil {
@@ -707,28 +713,32 @@ func getNodeGroupInfo(access_key, access_secret, region_id, cluster_id, node_gro
 		auto_scale_enalbed = true
 	}
 
+	// Always initialize with basic info; details filled in when launch config and ASG are available.
+	// If the node group is being deleted, its launch config and ASG may already be gone,
+	// causing an empty set — which would leave nodeGroupInfo nil and panic on subsequent access.
+	nodeGroupInfo = &irs.NodeGroupInfo{
+		IId: irs.IID{
+			NameId:   *res.Response.NodePool.Name,
+			SystemId: *res.Response.NodePool.NodePoolId,
+		},
+		Status:        status,
+		OnAutoScaling: auto_scale_enalbed,
+		Nodes:         []irs.IID{},
+		KeyValueList:  []irs.KeyValue{},
+	}
+
 	if len(launch_config.Response.LaunchConfigurationSet) > 0 && len(auto_scaling_group.Response.AutoScalingGroupSet) > 0 {
-		nodeGroupInfo = &irs.NodeGroupInfo{
-			IId: irs.IID{
-				NameId:   *res.Response.NodePool.Name,
-				SystemId: *res.Response.NodePool.NodePoolId,
-			},
-			ImageIID: irs.IID{
-				NameId:   "",
-				SystemId: *launch_config.Response.LaunchConfigurationSet[0].ImageId,
-			},
-			VMSpecName:      *launch_config.Response.LaunchConfigurationSet[0].InstanceType,
-			RootDiskType:    *launch_config.Response.LaunchConfigurationSet[0].SystemDisk.DiskType,
-			RootDiskSize:    fmt.Sprintf("%d", *launch_config.Response.LaunchConfigurationSet[0].SystemDisk.DiskSize),
-			KeyPairIID:      irs.IID{NameId: "", SystemId: *launch_config.Response.LaunchConfigurationSet[0].LoginSettings.KeyIds[0]},
-			Status:          status,
-			OnAutoScaling:   auto_scale_enalbed,
-			MinNodeSize:     int(*auto_scaling_group.Response.AutoScalingGroupSet[0].MinSize),
-			MaxNodeSize:     int(*auto_scaling_group.Response.AutoScalingGroupSet[0].MaxSize),
-			DesiredNodeSize: int(*auto_scaling_group.Response.AutoScalingGroupSet[0].DesiredCapacity),
-			Nodes:           []irs.IID{}, // to be implemented
-			KeyValueList:    []irs.KeyValue{},
+		nodeGroupInfo.ImageIID = irs.IID{
+			NameId:   "",
+			SystemId: *launch_config.Response.LaunchConfigurationSet[0].ImageId,
 		}
+		nodeGroupInfo.VMSpecName = *launch_config.Response.LaunchConfigurationSet[0].InstanceType
+		nodeGroupInfo.RootDiskType = *launch_config.Response.LaunchConfigurationSet[0].SystemDisk.DiskType
+		nodeGroupInfo.RootDiskSize = fmt.Sprintf("%d", *launch_config.Response.LaunchConfigurationSet[0].SystemDisk.DiskSize)
+		nodeGroupInfo.KeyPairIID = irs.IID{NameId: "", SystemId: *launch_config.Response.LaunchConfigurationSet[0].LoginSettings.KeyIds[0]}
+		nodeGroupInfo.MinNodeSize = int(*auto_scaling_group.Response.AutoScalingGroupSet[0].MinSize)
+		nodeGroupInfo.MaxNodeSize = int(*auto_scaling_group.Response.AutoScalingGroupSet[0].MaxSize)
+		nodeGroupInfo.DesiredNodeSize = int(*auto_scaling_group.Response.AutoScalingGroupSet[0].DesiredCapacity)
 	}
 
 	nodes, err := tencent.DescribeClusterInstances(access_key, access_secret, region_id, cluster_id)
@@ -963,7 +973,7 @@ func validateAtCreateCluster(clusterInfo irs.ClusterInfo) error {
 		return fmt.Errorf("At least one Subnet must be specified")
 	}
 	if len(clusterInfo.Network.SecurityGroupIIDs) < 1 {
-		return fmt.Errorf("At least one Subnet must be specified")
+		return fmt.Errorf("At least one Security Group must be specified")
 	}
 	// CAUTION: Currently CB-Spider's Tencent PMKS Drivers does not support to create a cluster with nodegroups
 	if len(clusterInfo.NodeGroupList) > 0 {

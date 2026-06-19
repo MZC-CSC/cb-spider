@@ -38,6 +38,7 @@ const (
 	MYIMAGE   string = string(cres.MYIMAGE)
 	CLUSTER   string = string(cres.CLUSTER)
 	NODEGROUP string = string(cres.NODEGROUP)
+	RDBMS     string = string(cres.RDBMS)
 )
 
 //================ Common Request & Response
@@ -174,7 +175,7 @@ func GetCSPResourceInfo(c echo.Context) error {
 		json.Unmarshal(result, &Result)
 		return c.JSON(http.StatusOK, Result)
 	default:
-		return fmt.Errorf(req.ResourceType + " is not supported Resource!!")
+		return fmt.Errorf("%s is not supported Resource!!", req.ResourceType)
 	}
 
 	return nil
