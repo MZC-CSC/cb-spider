@@ -1022,6 +1022,9 @@ func StartVM(connectionName string, rsType string, reqInfo cres.VMReqInfo, IDTra
 		}
 	}
 
+	// Resolve NetworkInterfaces SystemId → Spider NameId
+	resolveNICNameIds(connectionName, &info)
+
 	if os.Getenv("CALL_COUNT") != "" {
 		totalCalls := awsprofile.GetCallCount()
 		fmt.Printf("\nTotal AWS API calls during StartVM(): %d\n", totalCalls)
@@ -1550,28 +1553,18 @@ func ListVM(connectionName string, rsType string) ([]*cres.VMInfo, error) {
 	}
 	wg.Wait()
 
-	var errList []string
 	for idx, retChanInfo := range retChanInfos {
 		chanInfo := <-retChanInfo
 
 		if chanInfo.err != nil {
-			if checkNotFoundError(chanInfo.err) {
-				cblog.Error(chanInfo.err)
-				info := cres.VMInfo{IId: cres.IID{NameId: iidInfoList[idx].NameId, SystemId: iidInfoList[idx].SystemId}}
-				infoList2 = append(infoList2, &info)
-			} else {
-				errList = append(errList, connectionName+":VM:"+iidInfoList[idx].NameId+" # "+chanInfo.err.Error())
-			}
+			cblog.Error(chanInfo.err)
+			info := cres.VMInfo{IId: cres.IID{NameId: iidInfoList[idx].NameId, SystemId: iidInfoList[idx].SystemId}}
+			infoList2 = append(infoList2, &info)
 		} else {
 			infoList2 = append(infoList2, &chanInfo.vmInfo)
 		}
 
 		close(retChanInfo)
-	}
-
-	if len(errList) > 0 {
-		cblog.Error(strings.Join(errList, "\n"))
-		return nil, errors.New(strings.Join(errList, "\n"))
 	}
 
 	return infoList2, nil
@@ -1737,18 +1730,32 @@ func getSetNameId(ConnectionName string, vmInfo *cres.VMInfo) error {
 			err = infostore.GetByConditionsAndContain(&iidInfo, CONNECTION_NAME_COLUMN, vpcIIDInfo.ConnectionName,
 				OWNER_VPC_NAME_COLUMN, vmInfo.VpcIID.NameId, SYSTEM_ID_COLUMN, vmInfo.SubnetIID.SystemId)
 			if err != nil {
-				cblog.Error(err)
-				return err
+				// Subnet may not be registered in Spider's metadb (e.g. pre-existing subnet,
+				// or stale metadb after subnet re-creation). Log and continue gracefully.
+				if checkNotFoundError(err) {
+					cblog.Info(err)
+				} else {
+					cblog.Error(err)
+					return err
+				}
 			}
 		} else {
 			err := infostore.GetByConditionsAndContain(&iidInfo, CONNECTION_NAME_COLUMN, ConnectionName,
 				OWNER_VPC_NAME_COLUMN, vmInfo.VpcIID.NameId, SYSTEM_ID_COLUMN, vmInfo.SubnetIID.SystemId)
 			if err != nil {
-				cblog.Error(err)
-				return err
+				// Subnet may not be registered in Spider's metadb (e.g. pre-existing subnet,
+				// or stale metadb after subnet re-creation). Log and continue gracefully.
+				if checkNotFoundError(err) {
+					cblog.Info(err)
+				} else {
+					cblog.Error(err)
+					return err
+				}
 			}
 		}
-		vmInfo.SubnetIID.NameId = iidInfo.NameId
+		if iidInfo.NameId != "" {
+			vmInfo.SubnetIID.NameId = iidInfo.NameId
+		}
 	}
 
 	// set SecurityGroups NameId
@@ -1780,8 +1787,9 @@ func getSetNameId(ConnectionName string, vmInfo *cres.VMInfo) error {
 		vmInfo.SecurityGroupIIds[i].NameId = iidInfo.NameId
 	}
 	if len(vmInfo.SecurityGroupIIds) < 1 {
+		// Not fatal: this function also serves GetVM/ListVM, and a VM without a
+		// resolvable SecurityGroup must still be readable and registerable.
 		cblog.Infof("%s: SecurityGroupIIds is empty", vmInfo.IId.NameId)
-		return fmt.Errorf("%s: SecurityGroupIIds is empty", vmInfo.IId.NameId)
 	}
 
 	if vmInfo.KeyPairIId.SystemId != "" {
@@ -1963,6 +1971,9 @@ func GetVM(connectionName string, rsType string, nameID string) (*cres.VMInfo, e
 		}
 	}
 	// }
+
+	// Resolve NetworkInterfaces SystemId → Spider NameId
+	resolveNICNameIds(connectionName, &info)
 
 	return &info, nil
 }
@@ -2801,4 +2812,51 @@ func GetVMFavoriteList(csp, region, zone string, sortBy, sortOrder string) ([]VM
 	}
 
 	return favoriteList, nil
+}
+
+// resolveNICNameIds converts NICs SystemIds to Spider NameIds and resolves SubnetIID NameId.
+// It also backfills NetworkInterface from the primary NIC for backward compatibility.
+func resolveNICNameIds(connectionName string, info *cres.VMInfo) {
+	if len(info.NICs) == 0 {
+		return
+	}
+	for i, nic := range info.NICs {
+		// ---- Resolve NIC IId NameId ----
+		if nic.IId.SystemId != "" {
+			var nicIIdInfo NICIIDInfo
+			if err := infostore.GetByContain(&nicIIdInfo, CONNECTION_NAME_COLUMN, connectionName, SYSTEM_ID_COLUMN, nic.IId.SystemId); err == nil {
+				// Registered through Spider → use Spider NameId
+				info.NICs[i].IId.NameId = nicIIdInfo.NameId
+			} else {
+				// Not registered through Spider → use "default" (eth0) or "default-N" (ethN)
+				if nic.DeviceIndex == 0 {
+					info.NICs[i].IId.NameId = "default"
+				} else {
+					info.NICs[i].IId.NameId = fmt.Sprintf("default-%d", nic.DeviceIndex)
+				}
+			}
+		}
+
+		// ---- Resolve SubnetIID NameId ----
+		if nic.SubnetIID.SystemId != "" && nic.SubnetIID.NameId == "" {
+			var subnetIIdInfo SubnetIIDInfo
+			// Search by connection + subnet system ID (subnet IID store uses ConnectionName + SystemId)
+			if err := infostore.GetByContain(&subnetIIdInfo, CONNECTION_NAME_COLUMN, connectionName, SYSTEM_ID_COLUMN, nic.SubnetIID.SystemId); err == nil {
+				info.NICs[i].SubnetIID.NameId = subnetIIdInfo.NameId
+			}
+		}
+	}
+
+	// Backfill NetworkInterface from the primary NIC (DeviceIndex==0) for backward compatibility.
+	// Prefer the resolved NameId if available, otherwise fall back to SystemId.
+	if info.NetworkInterface == "" {
+		for _, nic := range info.NICs {
+			if nic.DeviceIndex == 0 {
+				if nic.IId.SystemId != "" {
+					info.NetworkInterface = nic.IId.SystemId
+				}
+				break
+			}
+		}
+	}
 }

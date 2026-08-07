@@ -382,6 +382,19 @@ func (nvch *NcpVpcClusterHandler) createCluster(clusterReqInfo *irs.ClusterInfo)
 			no, _ := strconv.ParseInt(subnet.IId.SystemId, 10, 32)
 			lbPublicSubnetNo = int32(no)
 		} else {
+			// Skip any LOADB-type subnets (e.g. created by the NLB handler) from the
+			// worker-node subnet list — NCP rejects LOADB subnets in SubnetNoList.
+			isLoadb := false
+			for _, kv := range subnet.KeyValueList {
+				if strings.EqualFold(kv.Key, "UsageType") && strings.Contains(strings.ToUpper(kv.Value), usageTypeCodeLoadb) {
+					isLoadb = true
+					break
+				}
+			}
+			if isLoadb {
+				cblogger.Infof("Skipping LOADB subnet [%s/%s] from worker node subnet list", subnet.IId.NameId, subnet.IId.SystemId)
+				continue
+			}
 			no, _ := strconv.ParseInt(subnet.IId.SystemId, 10, 32)
 			subnetNoList = append(subnetNoList, int32(no))
 		}
@@ -705,7 +718,39 @@ func (nvch *NcpVpcClusterHandler) GetCluster(clusterIID irs.IID) (irs.ClusterInf
 		clusterInfo.NodeGroupList = append(clusterInfo.NodeGroupList, nodeGroupInfo)
 	}
 
-	// NCP 정책상 NodeGroup의 실제 노드 목록 및 컨테이너(파드) 목록 반환은 미지원
+	// Fetch all worker nodes for the cluster and group by NodePool InstanceNo
+	workerNodeRes, err := nvch.ClusterClient.V2Api.ClustersUuidNodesGet(nvch.Ctx, ncloud.String(ncloud.StringValue(targetCluster.Uuid)))
+	if err != nil {
+		cblogger.Warnf("failed to get worker nodes for cluster %s: %v (nodes will be empty)", clusterIID.SystemId, err)
+	}
+
+	nodesByPoolId := map[string][]irs.IID{}
+	if workerNodeRes != nil && workerNodeRes.Nodes != nil {
+		for _, wn := range workerNodeRes.Nodes {
+			if wn.NodePoolId == nil {
+				continue
+			}
+			poolKey := fmt.Sprintf("%d", ncloud.Int32Value(wn.NodePoolId))
+			nodeSystemId := strings.TrimPrefix(ncloud.StringValue(wn.ProviderID), "navercloudplatform://")
+			if nodeSystemId == "" {
+				nodeSystemId = ncloud.StringValue(wn.Name)
+			}
+			if nodeSystemId == "" {
+				nodeSystemId = fmt.Sprintf("%d", ncloud.Int32Value(wn.Id))
+			}
+			nodesByPoolId[poolKey] = append(nodesByPoolId[poolKey], irs.IID{
+				NameId:   ncloud.StringValue(wn.Name),
+				SystemId: nodeSystemId,
+			})
+		}
+	}
+
+	for idx := range clusterInfo.NodeGroupList {
+		poolKey := clusterInfo.NodeGroupList[idx].IId.SystemId
+		if nodes, ok := nodesByPoolId[poolKey]; ok {
+			clusterInfo.NodeGroupList[idx].Nodes = nodes
+		}
+	}
 
 	LoggingInfo(hiscallInfo, start)
 	cblogger.Debug(clusterInfo)
@@ -1354,6 +1399,14 @@ func (nvch *NcpVpcClusterHandler) GetNodeGroup(clusterIID irs.IID, nodeGroupIID 
 		return irs.NodeGroupInfo{}, getErr
 	}
 
+	workerNodeRes, err := nvch.ClusterClient.V2Api.ClustersUuidNodesGet(nvch.Ctx, ncloud.String(clusterIID.SystemId))
+	if err != nil {
+		getErr := fmt.Errorf("failed to get worker node list: %w", err)
+		cblogger.Error(getErr)
+		LoggingError(hiscallInfo, getErr)
+		return irs.NodeGroupInfo{}, getErr
+	}
+
 	// Build NodeGroupInfo
 	onAutoScaling := false
 	minNodeSize := 0
@@ -1378,6 +1431,25 @@ func (nvch *NcpVpcClusterHandler) GetNodeGroup(clusterIID irs.IID, nodeGroupIID 
 		)
 	}
 
+	nodeList := []irs.IID{}
+	if workerNodeRes != nil && workerNodeRes.Nodes != nil {
+		for _, workerNode := range workerNodeRes.Nodes {
+			if workerNode.NodePoolId == nil || fmt.Sprintf("%d", ncloud.Int32Value(workerNode.NodePoolId)) != nodeGroupIID.SystemId {
+				continue
+			}
+
+			nodeSystemId := strings.TrimPrefix(ncloud.StringValue(workerNode.ProviderID), "navercloudplatform://")
+			if nodeSystemId == "" {
+				nodeSystemId = ncloud.StringValue(workerNode.Name)
+			}
+			if nodeSystemId == "" {
+				nodeSystemId = fmt.Sprintf("%d", ncloud.Int32Value(workerNode.Id))
+			}
+
+			nodeList = append(nodeList, irs.IID{NameId: ncloud.StringValue(workerNode.Name), SystemId: nodeSystemId})
+		}
+	}
+
 	nodeGroupInfo := irs.NodeGroupInfo{
 		IId: irs.IID{
 			NameId:   ncloud.StringValue(targetNodePool.Name),
@@ -1389,6 +1461,7 @@ func (nvch *NcpVpcClusterHandler) GetNodeGroup(clusterIID irs.IID, nodeGroupIID 
 		KeyPairIID:      irs.IID{NameId: ncloud.StringValue(targetCluster.LoginKeyName)},
 		OnAutoScaling:   onAutoScaling,
 		Status:          convertNCPNodePoolStatus(ncloud.StringValue(targetNodePool.Status)),
+		Nodes:           nodeList,
 		KeyValueList:    nodeGroupKeyValueList,
 	}
 
@@ -1440,51 +1513,27 @@ func (nvch *NcpVpcClusterHandler) ChangeNodeGroupScaling(clusterIID irs.IID, nod
 	DesiredNodeSize int, MinNodeSize int, MaxNodeSize int) (irs.NodeGroupInfo, error) {
 	cblogger.Infof("Cluster SystemId : [%s] / NodeGroup SystemId : [%s] / DesiredNodeSize : [%d] / MinNodeSize : [%d] / MaxNodeSize : [%d]", clusterIID.SystemId, nodeGroupIID.SystemId, DesiredNodeSize, MinNodeSize, MaxNodeSize)
 
-	return irs.NodeGroupInfo{}, nil
-	/*
-		// clusterIID로 cluster 정보를 조회
-		// nodeGroupIID로 nodeGroup 정보를 조회
-		// 		nodeGroup에 AutoScaling 그룹 이름이 있음.
+	if MinNodeSize < 1 || MaxNodeSize < 1 || DesiredNodeSize < 1 {
+		return irs.NodeGroupInfo{}, fmt.Errorf("invalid node group scaling values")
+	}
 
-		// TODO : 공통으로 뺄 것
-		input := &vnks.DescribeNodegroupInput{
-			ClusterName:   ncloud.String(clusterIID.SystemId),   //required
-			NodegroupName: ncloud.String(nodeGroupIID.SystemId), // required
-		}
+	updateBody := &vnks.NodePoolUpdateBody{
+		NodeCount: ncloud.Int32(int32(DesiredNodeSize)),
+		Autoscale: &vnks.AutoscalerUpdate{
+			Enabled: ncloud.Bool(true),
+			Min:     ncloud.Int32(int32(MinNodeSize)),
+			Max:     ncloud.Int32(int32(MaxNodeSize)),
+		},
+	}
 
-		result, err := nvch.ClusterClient.DescribeNodegroup(input)
-		cblogger.Debug(result.Nodegroup)
-		if err != nil {
-			cblogger.Error(err)
-			return irs.NodeGroupInfo{}, err
-		}
+	err := nvch.ClusterClient.V2Api.ClustersUuidNodePoolInstanceNoPatch(nvch.Ctx, updateBody,
+		ncloud.String(clusterIID.SystemId), ncloud.String(nodeGroupIID.SystemId))
+	if err != nil {
+		cblogger.Error(err)
+		return irs.NodeGroupInfo{}, err
+	}
 
-		nodeGroupName := result.Nodegroup.NodegroupName
-		nodeGroupResources := result.Nodegroup.Resources.AutoScalingGroups
-		for _, autoScalingGroup := range nodeGroupResources {
-			input := &vautoscaling.UpdateAutoScalingGroupInput{
-				AutoScalingGroupName: ncloud.String(*autoScalingGroup.Name),
-
-				MaxSize:         ncloud.Int64(int64(MaxNodeSize)),
-				MinSize:         ncloud.Int64(int64(MinNodeSize)),
-				DesiredCapacity: ncloud.Int64(int64(DesiredNodeSize)),
-			}
-
-			updateResult, err := nvch.ASClient.UpdateAutoScalingGroup(input)
-			if err != nil {
-				cblogger.Error(err)
-				return irs.NodeGroupInfo{}, err
-			}
-			cblogger.Debug(updateResult)
-		}
-
-		nodeGroupInfo, err := nvch.GetNodeGroup(clusterIID, irs.IID{SystemId: *nodeGroupName})
-		if err != nil {
-			cblogger.Error(err)
-			return irs.NodeGroupInfo{}, err
-		}
-		return nodeGroupInfo, nil
-	*/
+	return nvch.GetNodeGroup(clusterIID, nodeGroupIID)
 }
 
 func (nvch *NcpVpcClusterHandler) RemoveNodeGroup(clusterIID irs.IID, nodeGroupIID irs.IID) (bool, error) {
@@ -1702,11 +1751,15 @@ func (nvch *NcpVpcClusterHandler) convertNodeGroup(nodeGroupOutput *vnks.Describ
 		nodeGroupInfo.MaxNodeSize = int(*scalingConfig.MaxSize)
 
 		if nodeGroupTagList == nil {
-			nodeGroupTagList[NODEGROUP_TAG] = nodeGroupName // 값이없으면 nodeGroupName이랑 같은값으로 set.
+			nodeGroupTagList = make(map[string]*string)
+			nodeGroupTagList[NODEGROUP_TAG] = nodeGroupName
 		}
 		nodeGroupTag := ""
 		for key, val := range nodeGroupTagList {
-			if strings.EqualFold("key", NODEGROUP_TAG) {
+			if val == nil {
+				continue
+			}
+			if strings.EqualFold(key, "value") || strings.EqualFold(key, NODEGROUP_TAG) {
 				nodeGroupTag = *val
 				break
 			}

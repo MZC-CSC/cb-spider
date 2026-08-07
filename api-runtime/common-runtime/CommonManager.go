@@ -46,6 +46,8 @@ const (
 	NODEGROUP  string = string(cres.NODEGROUP)
 	FILESYSTEM string = string(cres.FILESYSTEM)
 	RDBMS      string = string(cres.RDBMS)
+	PUBLICIP   string = string(cres.PUBLICIP)
+	NIC        string = string(cres.NIC)
 )
 
 func RSTypeString(rsType string) string {
@@ -63,6 +65,8 @@ var myImageSPLock = splock.New()
 var clusterSPLock = splock.New()
 var fsSPLock = splock.New()
 var rdbmsSPLock = splock.New()
+var publicipSPLock = splock.New()
+var nicSPLock = splock.New()
 
 // vpcSharedResourceSPLock protects VPC-level shared resources (e.g., GCP Service Networking Peering, Azure Private DNS Zone)
 // that are created/deleted per VPC but shared by multiple RDBMS instances.
@@ -207,13 +211,23 @@ func getAWSNLBShortID(inID string) string {
 	return inID
 }
 
+// checkNotFoundError reports whether err means "this resource does not exist in the CSP".
+//
+// CONTRACT FOR DRIVER AUTHORS: when a resource is absent, a driver MUST return an
+// error whose message contains "not found" or "not exist" (spaces and case are
+// ignored here). Delete and List flows in common-runtime depend on it:
+//   - DeleteXXX() polls GetXXX() until the resource is gone from the CSP and ends
+//     the wait on this check. A message it cannot recognize turns a successful
+//     deletion into an error and leaves a stale IID in the meta DB.
+//   - ListXXX() degrades to a stub IID instead of failing the whole listing.
 func checkNotFoundError(err error) bool {
 	msg := err.Error()
 	msg = strings.ReplaceAll(msg, " ", "")
 	msg = strings.ToLower(msg)
 
 	return strings.Contains(msg, "notexist") || strings.Contains(msg, "notfound") ||
-		strings.Contains(msg, "notexist") || strings.Contains(msg, "failedtofind") || strings.Contains(msg, "failedtogetthevm") || strings.Contains(msg, "noresult")
+		strings.Contains(msg, "failedtofind") || strings.Contains(msg, "failedtogetthevm") ||
+		strings.Contains(msg, "noresult")
 }
 
 func getUserIIDList(iidInfoList []*iidm.IIDInfo) []*cres.IID {

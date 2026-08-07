@@ -72,11 +72,13 @@ func (GCPDriver) GetDriverCapability() idrv.DriverCapabilityInfo {
 
 	drvCapabilityInfo.TagHandler = true
 	// ires.VPC, ires.SUBNET, ires.SG, ires.KEY, ires.NLB, ires.MYIMAGE
-	drvCapabilityInfo.TagSupportResourceType = []ires.RSType{ires.VM, ires.DISK, ires.CLUSTER}
+	drvCapabilityInfo.TagSupportResourceType = []ires.RSType{ires.VM, ires.DISK, ires.CLUSTER, ires.RDBMS}
 
 	drvCapabilityInfo.QuotaInfoHandler = true
 
 	drvCapabilityInfo.RDBMSHandler = true
+	drvCapabilityInfo.PublicIPHandler = false
+	drvCapabilityInfo.NICHandler = false
 
 	drvCapabilityInfo.VPC_CIDR = false
 
@@ -138,8 +140,8 @@ func (driver *GCPDriver) ConnectCloud(connectionInfo idrv.ConnectionInfo) (icon.
 		Credential:  connectionInfo.CredentialInfo,
 		Ctx:         Ctx,
 		VMClient:    VMClient,
-		ImageClient: VMClient,
-		// PublicIPClient:      VMClient,
+		ImageClient:    VMClient,
+		PublicIPClient: VMClient,
 		SecurityGroupClient: VMClient,
 		// VNetClient:          VMClient,
 		// VNicClient:          VMClient,

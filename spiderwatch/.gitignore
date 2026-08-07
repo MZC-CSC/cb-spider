@@ -1,6 +1,5 @@
 # Binaries
 bin/
-spiderwatch
 
 # PID file and log (created by 'make run')
 .spiderwatch.pid
@@ -12,6 +11,9 @@ spiderwatch.log
 
 # Test result data (generated at runtime)
 data/
+
+# PostgreSQL data directory (created at runtime)
+postgres_data/
 
 # Log files
 logs/

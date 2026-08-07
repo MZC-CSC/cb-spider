@@ -363,13 +363,43 @@ func getRoutes() []route {
 			{"GET", "/vnic", listVNic},
 			{"GET", "/vnic/:VNicId", getVNic},
 			{"DELETE", "/vnic/:VNicId", deleteVNic},
-
-			//----------PublicIP Handler
-			{"POST", "/publicip", createPublicIP},
-			{"GET", "/publicip", listPublicIP},
-			{"GET", "/publicip/:PublicIPId", getPublicIP},
-			{"DELETE", "/publicip/:PublicIPId", deletePublicIP},
 		*/
+
+		//----------PublicIP Handler
+		{"POST", "/regpublicip", RegisterPublicIP},
+		{"DELETE", "/regpublicip/:Name", UnregisterPublicIP},
+
+		{"POST", "/publicip", CreatePublicIP},
+		{"GET", "/publicip", ListPublicIP},
+		{"GET", "/publicip/:Name", GetPublicIP},
+		{"DELETE", "/publicip/:Name", DeletePublicIP},
+
+		{"PUT", "/publicip/:Name/associate", AssociatePublicIP},
+		{"PUT", "/publicip/:Name/disassociate", DisassociatePublicIP},
+
+		//----------NIC Handler
+		{"POST", "/regnic", RegisterNIC},
+		{"DELETE", "/regnic/:Name", UnregisterNIC},
+
+		{"POST", "/nic", CreateNIC},
+		{"GET", "/nic", ListNIC},
+		{"GET", "/nic/:Name", GetNIC},
+		{"DELETE", "/nic/:Name", DeleteNIC},
+
+		{"PUT", "/nic/:Name/attach", AttachNIC},
+		{"PUT", "/nic/:Name/detach", DetachNIC},
+
+		{"POST",   "/nic/:Name/privateip",     AddNICPrivateIP},
+		{"DELETE", "/nic/:Name/privateip/:IP", RemoveNICPrivateIP},
+
+		{"GET", "/nic/:Name/osconfigscript", GetNICOSConfigScript},
+
+		{"GET", "/countnic", CountAllNICs},
+		{"GET", "/countnic/:ConnectionName", CountNICsByConnection},
+
+		{"GET", "/countpublicip", CountAllPublicIPs},
+		{"GET", "/countpublicip/:ConnectionName", CountPublicIPsByConnection},
+
 		//----------VM Handler
 		{"GET", "/getvmusingresources", GetVMUsingRS},
 		{"POST", "/getvmusingresources", GetVMUsingRS},
@@ -515,6 +545,10 @@ func getRoutes() []route {
 		{"GET", "/filesystem/:Name/accesssubnet", ListAccessSubnet},
 		{"DELETE", "/filesystem/:Name/accesssubnet", RemoveAccessSubnet},
 
+		//----------Monitoring Handler
+		{"GET", "/monitoring/vm/:VMName/:MetricType", GetVMMetricData},
+		{"GET", "/monitoring/clusternode/:ClusterName/:NodeGroupName/:NodeNumber/:MetricType", GetClusterNodeMetricData},
+
 		//----------Destory All Resources in a Connection
 		{"DELETE", "/destroy", Destroy},
 
@@ -605,6 +639,14 @@ func getRoutes() []route {
 
 		//-- for dashboard
 		{"GET", "/counts3/:ConnectionName", CountS3BucketsByConnection},
+
+		// CB-Spider Special Features for S3 Object Storage Management
+		{"POST", "/regs3", RegisterS3Bucket},
+		{"DELETE", "/regs3/:Name", UnregisterS3Bucket},
+		{"GET", "/alls3", ListAllS3Buckets},
+		{"GET", "/alls3info", ListAllS3BucketInfo},
+		{"GET", "/counts3", CountAllS3Buckets},
+		{"DELETE", "/csps3/:Id", DeleteCSPS3Bucket},
 	}
 
 	// Add AdminWeb and Swagger routes conditionally
@@ -660,6 +702,15 @@ func getRoutes() []route {
 			{"GET", "/adminweb/nlb/:ConnectConfig", aw.NLBManagement},
 			{"GET", "/adminweb/nlbmgmt/:ConnectConfig", aw.NLBMgmt},
 			{"GET", "/adminweb/disk/:ConnectConfig", aw.DiskManagement},
+			{"GET", "/adminweb/publicip/:ConnectConfig", aw.PublicIPManagement},
+			{"GET", "/adminweb/nic/:ConnectConfig", aw.NICManagement},
+			{"GET", "/adminweb/topology/:ConnectConfig", aw.TopologyManagement},
+
+		//----------Topology Layout (MetaDB persistence, multi-version)
+		{"GET",    "/topology/layout",         ListTopologyLayouts},  // list all versions
+		{"GET",    "/topology/layout/version",  GetTopologyLayout},   // get one version (full)
+		{"POST",   "/topology/layout",         SaveTopologyLayout},   // save/upsert a version
+		{"DELETE", "/topology/layout",         DeleteTopologyLayout}, // delete one version
 			{"GET", "/adminweb/diskmgmt/:ConnectConfig", aw.DiskMgmt},
 			{"GET", "/adminweb/cluster/:ConnectConfig", aw.ClusterManagement},
 			{"GET", "/adminweb/clustermgmt/:ConnectConfig", aw.ClusterMgmt},

@@ -21,6 +21,7 @@ import (
 	ires "github.com/cloud-barista/cb-spider/cloud-control-manager/cloud-driver/interfaces/resources"
 
 	ncloud "github.com/NaverCloudPlatform/ncloud-sdk-go-v2/ncloud"
+	server "github.com/NaverCloudPlatform/ncloud-sdk-go-v2/services/server"
 	vas "github.com/NaverCloudPlatform/ncloud-sdk-go-v2/services/vautoscaling"
 	vlb "github.com/NaverCloudPlatform/ncloud-sdk-go-v2/services/vloadbalancer"
 	vmysql "github.com/NaverCloudPlatform/ncloud-sdk-go-v2/services/vmysql"
@@ -75,6 +76,8 @@ func (NcpVpcDriver) GetDriverCapability() idrv.DriverCapabilityInfo {
 	drvCapabilityInfo.VPC_CIDR = true
 
 	drvCapabilityInfo.RDBMSHandler = true
+	drvCapabilityInfo.PublicIPHandler = false
+	drvCapabilityInfo.NICHandler = false
 
 	return drvCapabilityInfo
 }
@@ -173,6 +176,15 @@ func getPostgresqlClient(connectionInfo idrv.ConnectionInfo) (*vpostgresql.APICl
 	return client, nil
 }
 
+func getClassicServerClient(connectionInfo idrv.ConnectionInfo) (*server.APIClient, error) {
+	apiKeys := ncloud.APIKey{
+		AccessKey: connectionInfo.CredentialInfo.ClientId,
+		SecretKey: connectionInfo.CredentialInfo.ClientSecret,
+	}
+	client := server.NewAPIClient(server.NewConfiguration(&apiKeys))
+	return client, nil
+}
+
 func (driver *NcpVpcDriver) ConnectCloud(connectionInfo idrv.ConnectionInfo) (icon.CloudConnection, error) {
 	// 1. get info of credential and region for Test A Cloud from connectionInfo.
 	// 2. create a client object(or service  object) of Test A Cloud with credential info.
@@ -222,6 +234,12 @@ func (driver *NcpVpcDriver) ConnectCloud(connectionInfo idrv.ConnectionInfo) (ic
 		return nil, err
 	}
 
+	classicClient, err := getClassicServerClient(connectionInfo)
+	if err != nil {
+		cblogger.Warnf("Failed to create Classic server client (non-fatal): %v", err)
+		classicClient = nil
+	}
+
 	iConn := ncpcon.NcpVpcCloudConnection{
 		CredentialInfo: connectionInfo.CredentialInfo,
 		RegionInfo:     connectionInfo.RegionInfo,
@@ -233,6 +251,7 @@ func (driver *NcpVpcDriver) ConnectCloud(connectionInfo idrv.ConnectionInfo) (ic
 		VnasClient:     vnasClient,
 		MysqlClient:    mysqlClient,
 		PostgresClient: postgresClient,
+		ClassicClient:  classicClient,
 	}
 
 	return &iConn, nil

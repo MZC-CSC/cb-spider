@@ -543,8 +543,15 @@ func (ach *AlibabaClusterHandler) AddNodeGroup(clusterIID irs.IID, nodeGroupReqI
 	// KeyPair: Alibaba uses KeyPairName as both NameId and SystemId, so use SystemId
 	keyPair := nodeGroupReqInfo.KeyPairIID.SystemId
 
-	// Image: Alibaba uses ImageId as SystemId
-	imageId := nodeGroupReqInfo.ImageIID.SystemId
+	// Image: prefer NameId (user-specified ACK image_type alias) over SystemId (resolved ECS image ID).
+	// TB resolves ACK aliases (e.g. "AliyunLinux3") to ECS image IDs before calling Spider, but
+	// ACK rejects ECS IDs on AddNodeGroup with "does not support cgroup v2". Using NameId keeps
+	// the alias intact so the ackImageTypeAliases check below can route it correctly, consistent
+	// with how CreateCluster's buildNodepoolsForCreateCluster uses ImageIID.NameId.
+	imageId := nodeGroupReqInfo.ImageIID.NameId
+	if imageId == "" {
+		imageId = nodeGroupReqInfo.ImageIID.SystemId
+	}
 
 	// ACK image_type aliases - these must be passed as image_type, not image_id.
 	// Actual ECS image IDs start with "m-"; anything else that matches a known
@@ -859,10 +866,25 @@ func (ach *AlibabaClusterHandler) getClusterInfoWithoutNodeGroupList(regionId, c
 		return nil, err
 	}
 
-	secGroupAttr, err := aliDescribeSecurityGroupAttribute(ach.EcsClient, regionId, tea.StringValue(cluster.SecurityGroupId))
-	if err != nil {
-		err = fmt.Errorf("failed to get ClusterInfo: %v", err)
-		return nil, err
+	var secGroupAttr *ecs2014.DescribeSecurityGroupAttributeResponseBody
+	{
+		const maxSGRetries = 10
+		const sgRetryInterval = 10 * time.Second
+		var sgErr error
+		for attempt := 1; attempt <= maxSGRetries; attempt++ {
+			secGroupAttr, sgErr = aliDescribeSecurityGroupAttribute(ach.EcsClient, regionId, tea.StringValue(cluster.SecurityGroupId))
+			if sgErr == nil {
+				break
+			}
+			cblogger.Warnf("getClusterInfoWithoutNodeGroupList: SG attribute attempt %d/%d failed: %v", attempt, maxSGRetries, sgErr)
+			if attempt < maxSGRetries {
+				time.Sleep(sgRetryInterval)
+			}
+		}
+		if sgErr != nil {
+			err = fmt.Errorf("failed to get ClusterInfo: %v", sgErr)
+			return nil, err
+		}
 	}
 
 	clusterInfo := &irs.ClusterInfo{
@@ -1202,6 +1224,9 @@ func existNotDeletedClusterWithTagInVpc(csClient *cs2015.Client, regionId, vpcId
 		}
 		if strings.EqualFold(*cluster.VpcId, vpcId) {
 			for _, tag := range cluster.Tags {
+				if tag == nil || tag.Key == nil || tag.Value == nil {
+					continue
+				}
 				if strings.EqualFold(*tag.Key, tagKey) &&
 					strings.EqualFold(*tag.Value, tagValue) {
 					clusterListWithTagInVpc = append(clusterListWithTagInVpc, cluster)

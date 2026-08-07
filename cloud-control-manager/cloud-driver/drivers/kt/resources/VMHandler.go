@@ -9,6 +9,7 @@
 // by ETRI, 2022.12.
 // Updated by ETRI 2024.01.
 // Updated by ETRI 2025.11.
+// Updated by ETRI 2026.07.
 
 package resources
 
@@ -26,9 +27,13 @@ import (
 
 	ktvpcsdk "github.com/cloud-barista/ktcloudvpc-sdk-go"
 	volumes2 "github.com/cloud-barista/ktcloudvpc-sdk-go/openstack/blockstorage/v2/volumes"
+	ktattachinterfaces "github.com/cloud-barista/ktcloudvpc-sdk-go/openstack/compute/v2/extensions/attachinterfaces"
 	volumeboot "github.com/cloud-barista/ktcloudvpc-sdk-go/openstack/compute/v2/extensions/bootfromvolume"
 	keys "github.com/cloud-barista/ktcloudvpc-sdk-go/openstack/compute/v2/extensions/keypairs"
 	startstop "github.com/cloud-barista/ktcloudvpc-sdk-go/openstack/compute/v2/extensions/startstop"
+	ktl3fips "github.com/cloud-barista/ktcloudvpc-sdk-go/openstack/networking/v2/extensions/layer3/floatingips"
+	ktports "github.com/cloud-barista/ktcloudvpc-sdk-go/openstack/networking/v2/ports"
+	ktsubnets "github.com/cloud-barista/ktcloudvpc-sdk-go/openstack/networking/v2/subnets"
 	"github.com/cloud-barista/ktcloudvpc-sdk-go/pagination"
 
 	// flavors  "github.com/cloud-barista/ktcloudvpc-sdk-go/openstack/compute/v2/flavors"
@@ -711,16 +716,13 @@ func (vmHandler *KTVpcVMHandler) TerminateVM(vmIID irs.IID) (irs.VMStatus, error
 
 	// Handle public IP and private IP cases separately
 	if !strings.EqualFold(vm.PublicIP, "") {
-		// Delete Firewall Rules
+		// Firewall deletion failure is non-fatal: warn and continue to avoid orphaned PF rules and VM.
 		_, dellFwErr := vmHandler.removeFirewallRules(vm.PublicIP)
 		if dellFwErr != nil {
-			newErr := fmt.Errorf("Failed to Delete Firewall Rules : [%v]", dellFwErr)
-			cblogger.Error(newErr.Error())
-			loggingError(callLogInfo, newErr)
-			return irs.Failed, newErr
+			cblogger.Warnf("Failed to Delete Firewall Rules (continuing termination): [%v]", dellFwErr)
+			loggingError(callLogInfo, fmt.Errorf("Failed to Delete Firewall Rules : [%v]", dellFwErr))
 		}
 
-		// Delete Port Forwarding Rules
 		_, dellPfErr := vmHandler.removePortForwardingRules(vm.PublicIP)
 		if dellPfErr != nil {
 			newErr := fmt.Errorf("Failed to Delete Port Forwarding Rules : [%v]", dellPfErr)
@@ -739,16 +741,22 @@ func (vmHandler *KTVpcVMHandler) TerminateVM(vmIID irs.IID) (irs.VMStatus, error
 		}
 
 	} else {
-		cblogger.Info("The VM doesn't have any connected Pulbic IP!! Waitting for Termination!!")
+		// PublicIP is empty: try to clean up PF rules by private IP (MappedIP) to avoid orphans.
+		cblogger.Info("The VM doesn't have any connected Public IP. Attempting PF rule cleanup by private IP.")
+		if !strings.EqualFold(vm.PrivateIP, "") {
+			_, dellPfErr := vmHandler.removePortForwardingRulesByPrivateIP(vm.PrivateIP)
+			if dellPfErr != nil {
+				cblogger.Warnf("Failed to Delete Port Forwarding Rules by private IP (continuing): [%v]", dellPfErr)
+			}
+		}
 	}
 
 	if !strings.EqualFold(vm.PrivateIP, "") {
-		// Delete Firewall Rules
+		// Firewall deletion failure is non-fatal: warn and continue so VM deletion is not blocked.
 		_, dellFwErr := vmHandler.removeFirewallRules(vm.PrivateIP)
 		if dellFwErr != nil {
-			cblogger.Error(dellFwErr.Error())
+			cblogger.Warnf("Failed to Delete Firewall Rules for private IP (continuing termination): [%v]", dellFwErr)
 			loggingError(callLogInfo, dellFwErr)
-			return irs.Failed, dellFwErr
 		}
 	} else {
 		cblogger.Info("The VM doesn't have any Private IP!! Waitting for Termination!!")
@@ -1216,8 +1224,8 @@ func (vmHandler *KTVpcVMHandler) mappingVMInfo(vm servers.Server) (irs.VMInfo, e
 			SystemId: vm.ID,
 		},
 		Region: irs.RegionInfo{
-			// Region: "N/A",
-			Zone: vmHandler.RegionInfo.Zone,
+			Region: vmHandler.RegionInfo.Region,
+			Zone:   vmHandler.RegionInfo.Zone,
 		},
 		KeyPairIId: irs.IID{
 			NameId:   vm.KeyName,
@@ -1237,7 +1245,7 @@ func (vmHandler *KTVpcVMHandler) mappingVMInfo(vm servers.Server) (irs.VMInfo, e
 		cblogger.Debug(getSGErr)
 		// return irs.VMInfo{}, getSGErr
 	}
-	if countSgKvList(*sgInfo) > 0 {
+	if sgInfo != nil && countSgKvList(*sgInfo) > 0 {
 		// Since S/G is managed as a file, the systemID is the same as the name ID.
 		var sgIIDs []irs.IID
 		for _, kv := range sgInfo.KeyValueInfoList {
@@ -1259,14 +1267,82 @@ func (vmHandler *KTVpcVMHandler) mappingVMInfo(vm servers.Server) (irs.VMInfo, e
 		}
 	}
 
-	netInfo, err := vmHandler.getNetIDsWithPrivateIP(vmInfo.PrivateIP)
-	if err != nil {
-		newErr := fmt.Errorf("Failed to Get PortForwarding Info. [%v]", err)
-		cblogger.Debug(newErr.Error())
-		// return irs.VMInfo{}, nil
-		// return irs.VMInfo{}, newErr
+	// Build NICs info from attachinterfaces
+	{
+		pager := ktattachinterfaces.List(vmHandler.VMClient, vm.ID)
+		allPages, aiErr := pager.AllPages()
+		if aiErr == nil {
+			ifaces, aiErr2 := ktattachinterfaces.ExtractInterfaces(allPages)
+			if aiErr2 == nil {
+				var vmNICs []irs.VMNICInfo
+				var allPrivateIPs []string
+				for idx, iface := range ifaces {
+					nicNameId := iface.PortID
+					if p, pErr := ktports.Get(vmHandler.NetworkClient, iface.PortID).Extract(); pErr == nil && p.Name != "" {
+						nicNameId = p.Name
+					}
+					nicInfo := irs.VMNICInfo{
+						DeviceIndex: idx,
+						IId:         irs.IID{NameId: nicNameId, SystemId: iface.PortID},
+						MACAddress:  iface.MACAddr,
+					}
+					if len(iface.FixedIPs) > 0 {
+						subnetID := iface.FixedIPs[0].SubnetID
+						nicInfo.SubnetIID = irs.IID{SystemId: subnetID}
+						sub, subErr := ktsubnets.Get(vmHandler.NetworkClient, subnetID).ExtractSubnet()
+						if subErr == nil && sub != nil {
+							nicInfo.SubnetIID.NameId = sub.NetworkName // zone subnet name for NIC display
+						}
+						// Note: vmInfo.SubnetIID is set from vm.Addresses key below (not from NIC loop),
+						// which gives the tier name directly (old approach, more reliable for KT Cloud).
+					}
+					// Build FloatingIP map (fixedIP → publicIP)
+					fipMap := map[string]string{}
+					fipPages, fipErr := ktl3fips.List(vmHandler.NetworkClient, ktl3fips.ListOpts{PortID: iface.PortID}).AllPages()
+					if fipErr == nil {
+						if fips, fipErr2 := ktl3fips.ExtractFloatingIPs(fipPages); fipErr2 == nil {
+							for _, fip := range fips {
+								fipMap[fip.FixedIP] = fip.FloatingIP
+							}
+						}
+					}
+					var privateIPs []string
+					var publicIPs []string
+					for _, fip := range iface.FixedIPs {
+						if fip.IPAddress != "" {
+							privateIPs = append(privateIPs, fip.IPAddress)
+							publicIPs = append(publicIPs, fipMap[fip.IPAddress])
+						}
+					}
+					nicInfo.PrivateIPs = privateIPs
+					nicInfo.PublicIPs = publicIPs
+					allPrivateIPs = append(allPrivateIPs, privateIPs...)
+					if idx == 0 {
+						vmInfo.NetworkInterface = nicNameId
+					}
+					vmNICs = append(vmNICs, nicInfo)
+				}
+				if len(vmNICs) > 0 {
+					vmInfo.NICs = vmNICs
+				}
+				if len(allPrivateIPs) > 0 {
+					vmInfo.PrivateIPs = allPrivateIPs
+				}
+			}
+		}
 	}
 
+	var netInfo *NetworkInfo
+	if !strings.EqualFold(vmInfo.PrivateIP, "") {
+		var getNetErr error
+		netInfo, getNetErr = vmHandler.getNetIDsWithPrivateIP(vmInfo.PrivateIP)
+		if getNetErr != nil {
+			newErr := fmt.Errorf("Failed to Get PortForwarding Info. [%v]", getNetErr)
+			cblogger.Debug(newErr.Error())
+			// return irs.VMInfo{}, nil
+			// return irs.VMInfo{}, newErr
+		}
+	}
 	// cblogger.Info("\n\n### netInfo : ")
 	// spew.Dump(netInfo)
 	// cblogger.Info("\n")
@@ -1288,19 +1364,22 @@ func (vmHandler *KTVpcVMHandler) mappingVMInfo(vm servers.Server) (irs.VMInfo, e
 	// 	cblogger.Infof("# OsNetwork ID : %s", OsNetId)
 	// }
 
-	tierId, getNetErr := vpcHandler.getTierIdWithTierName(vmInfo.SubnetIID.NameId)
+	// Find the correct KT tier by name.
+	// vm.Addresses map key = tier name (e.g. "spider-watch") — this is set above and matches
+	// the RefName stored in Spider metadb via mappingSubnetInfo, so getTierRefIdWithTierName works correctly.
+	tierRefId, getNetErr := vpcHandler.getTierRefIdWithTierName(vmInfo.SubnetIID.NameId)
 	if getNetErr != nil {
 		newErr := fmt.Errorf("Failed to Get the OsNetwork ID with the Tier Name : [%v]", getNetErr)
 		cblogger.Error(newErr.Error())
 		return irs.VMInfo{}, newErr
 	}
-	if tierId != nil {
-		vmInfo.SubnetIID.SystemId = *tierId // Caution!!) Not Tier 'NetworkId' but 'TierId' to Create VM through REST API!!
+	if tierRefId != nil {
+		vmInfo.SubnetIID.SystemId = *tierRefId // Caution!!) Not Tier 'NetworkId' but 'tierRefId' to Create VM through REST API!!
 	}
 
-	vpcId, err := vpcHandler.getVPCIdWithTierId(*tierId)
+	vpcId, err := vpcHandler.getVPCIdWithTierRefId(vmInfo.SubnetIID.SystemId)
 	if err != nil {
-		newErr := fmt.Errorf("Failed to Get the VPC ID with teh OsNetwork ID. [%v]", err)
+		newErr := fmt.Errorf("Failed to Get the VPC ID with the OsNetwork ID. [%v]", err)
 		cblogger.Error(newErr.Error())
 		return irs.VMInfo{}, newErr
 	}
@@ -1543,7 +1622,7 @@ func (vmHandler *KTVpcVMHandler) listFirewallRule() ([]rules.FirewallRule, error
 	// ### If enter a different number to ListOpts, the value will not be retrieved correctly.
 	listOpts := rules.ListOpts{
 		Page: 1,
-		Size: 20,
+		Size: 2000, // Max page size, to list all data in a single page
 	}
 	pager := rules.List(vmHandler.NetworkClient, listOpts) // Caution!!) Not VMClient but NetworkClient
 	err := pager.EachPage(func(page pagination.Page) (bool, error) {
@@ -1582,7 +1661,7 @@ func (vmHandler *KTVpcVMHandler) listPortForwarding() ([]portforward.PortForward
 	// ### If enter a different number to ListOpts, the value will not be retrieved correctly.
 	listOpts := portforward.ListOpts{
 		Page: 1,
-		Size: 20,
+		Size: 2000, // Max page size, to list all data in a single page
 	}
 	pager := portforward.List(vmHandler.NetworkClient, listOpts)
 	err := pager.EachPage(func(page pagination.Page) (bool, error) {
@@ -1748,7 +1827,7 @@ func (vmHandler *KTVpcVMHandler) removeFirewallRules(ip string) (bool, error) {
 		return false, newErr
 	}
 
-	cblogger.Info("Cloud driver: called listFirewallRule()!!")
+	cblogger.Info("listFirewallRule()!!")
 	fwRuleList, err := vmHandler.listFirewallRule()
 	if err != nil {
 		newErr := fmt.Errorf("Failed to Get Firewall Rule List. [%v]", err)
@@ -1760,6 +1839,8 @@ func (vmHandler *KTVpcVMHandler) removeFirewallRules(ip string) (bool, error) {
 		cblogger.Debug(newErr.Error())
 		return true, nil // Not false, newErr
 	}
+	// cblogger.Infof("/n＃ fwRuleList :")
+	// spew.Dump(fwRuleList)
 
 	policyIDs, err := vmHandler.findFirewallPolicyIDsByIP(fwRuleList, ip)
 	if err != nil {
@@ -1776,6 +1857,7 @@ func (vmHandler *KTVpcVMHandler) removeFirewallRules(ip string) (bool, error) {
 
 	// Deletes all firewall rules matching the given policyIDs.
 	for _, policyID := range policyIDs {
+		cblogger.Infof("＃ PolicyID: %s", policyID)
 		result := rules.Delete(vmHandler.NetworkClient, policyID)
 		if result.Err != nil {
 			errMsg := result.Err.Error()
@@ -1807,7 +1889,7 @@ func (vmHandler *KTVpcVMHandler) removePortForwardingRules(publicIp string) (boo
 	// 1. List all port forwarding rules with pagination
 	listOpts := portforward.ListOpts{
 		Page: 1,
-		Size: 20,
+		Size: 2000, // Max page size, to list all data in a single page
 	}
 	pager := portforward.List(vmHandler.NetworkClient, listOpts)
 
@@ -1849,6 +1931,51 @@ func (vmHandler *KTVpcVMHandler) removePortForwardingRules(publicIp string) (boo
 	// Wait 3 seconds for deletion to complete
 	time.Sleep(3 * time.Second)
 
+	return true, nil
+}
+
+// removePortForwardingRulesByPrivateIP deletes PF rules matching by MappedIP (private IP),
+// used when PublicIP is unavailable from GetVM().
+func (vmHandler *KTVpcVMHandler) removePortForwardingRulesByPrivateIP(privateIP string) (bool, error) {
+	cblogger.Info("KT Cloud VPC Driver: called removePortForwardingRulesByPrivateIP()!")
+
+	if strings.EqualFold(privateIP, "") {
+		return false, fmt.Errorf("Invalid Private IP Address!!")
+	}
+
+	listOpts := portforward.ListOpts{
+		Page: 1,
+		Size: 2000,
+	}
+	pager := portforward.List(vmHandler.NetworkClient, listOpts)
+
+	var pfIDs []string
+	err := pager.EachPage(func(page pagination.Page) (bool, error) {
+		pfs, err := portforward.ExtractPFs(page)
+		if err != nil {
+			return false, fmt.Errorf("Failed to Extract Portforwarding Rules : [%v]", err)
+		}
+		for _, pf := range pfs {
+			if pf.MappedIP == privateIP {
+				pfIDs = append(pfIDs, pf.ID)
+			}
+		}
+		return true, nil
+	})
+	if err != nil {
+		return false, fmt.Errorf("Failed to Get Portforwarding Rule ID List : [%v]", err)
+	}
+
+	for _, pfID := range pfIDs {
+		result := portforward.Delete(vmHandler.NetworkClient, pfID)
+		if result.Err != nil {
+			cblogger.Warnf("Failed to Delete Portforwarding Rule (ID: %s): [%v]", pfID, result.Err)
+		} else {
+			cblogger.Infof("Successfully Deleted Portforwarding Rule by private IP (ID: %s)", pfID)
+		}
+	}
+
+	time.Sleep(3 * time.Second)
 	return true, nil
 }
 
@@ -2156,7 +2283,7 @@ func (vmHandler *KTVpcVMHandler) getVmPrivateIpAndNetIdWithVMId(vmId string) (st
 		RegionInfo:    vmHandler.RegionInfo,
 		NetworkClient: vmHandler.NetworkClient, // Required!!
 	}
-	tierId, getOsNetErr := vpcHandler.getTierIdWithTierName(subnetName)
+	tierId, getOsNetErr := vpcHandler.getTierRefIdWithTierName(subnetName)
 	if getOsNetErr != nil {
 		newErr := fmt.Errorf("Failed to Get the OsNetwork ID with the Tier Name : [%v]", getOsNetErr)
 		cblogger.Error(newErr.Error())
@@ -2328,7 +2455,7 @@ func (vmHandler *KTVpcVMHandler) findPublicIPIDByIP(publicIPAddress string) (str
 	// List all floating IPs with pagination
 	listOpts := ips.ListOpts{
 		Page: 1,
-		Size: 20,
+		Size: 2000, // Max page size, to list all data in a single page
 	}
 	pager := ips.List(vmHandler.NetworkClient, listOpts)
 

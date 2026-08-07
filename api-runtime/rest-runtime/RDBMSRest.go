@@ -299,11 +299,14 @@ func ListAllRDBMS(c echo.Context) error {
 // listAllRDBMSInfo godoc
 // @ID list-all-rdbms-info
 // @Summary List All RDBMS Info
-// @Description Retrieve a list of all RDBMS information associated with all connections.
+// @Description Retrieve a comprehensive list of all RDBMS information associated with a specific connection, <br> including those mapped between CB-Spider and the CSP, <br> only registered in CB-Spider's metadata, <br> and only existing in the CSP.
 // @Tags [RDBMS Management]
 // @Accept  json
 // @Produce  json
-// @Success 200 {object} AllResourceListResponse "List of all RDBMS information across all connections"
+// @Param ConnectionName query string true "The name of the Connection to list RDBMS information for"
+// @Success 200 {object} AllResourceInfoListResponse "List of all RDBMS information within the specified connection, including RDBMS in CB-Spider only, CSP only, and mapped between both."
+// @Failure 400 {object} SimpleMsg "Bad Request, possibly due to invalid query parameter"
+// @Failure 404 {object} SimpleMsg "Resource Not Found"
 // @Failure 500 {object} SimpleMsg "Internal Server Error"
 // @Router /allrdbmsinfo [get]
 func ListAllRDBMSInfo(c echo.Context) error { return listAllResourceInfo(c, cres.RDBMS) }
@@ -577,7 +580,8 @@ func CreateRDBMSDatabase(c echo.Context) error {
 // @Accept  json
 // @Produce  json
 // @Param Name path string true "The name of the RDBMS instance"
-// @Param RDBMSDatabaseRequest body restruntime.RDBMSDatabaseRequest true "ConnectionName"
+// @Param ConnectionName query string true "The name of the Connection"
+// @Param MasterUserPassword query string false "The master user password (required by SQL-based drivers such as AWS and IBM)"
 // @Success 200 {object} restruntime.RDBMSDatabaseListResponse "List of databases"
 // @Failure 400 {object} SimpleMsg "Bad Request"
 // @Failure 501 {object} SimpleMsg "Not Supported by driver"
@@ -589,6 +593,13 @@ func ListRDBMSDatabases(c echo.Context) error {
 	var req RDBMSDatabaseRequest
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	// To support for Get-Query Param Type API
+	if req.ConnectionName == "" {
+		req.ConnectionName = c.QueryParam("ConnectionName")
+	}
+	if req.MasterUserPassword == "" {
+		req.MasterUserPassword = c.QueryParam("MasterUserPassword")
 	}
 	if req.ConnectionName == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "ConnectionName is required")

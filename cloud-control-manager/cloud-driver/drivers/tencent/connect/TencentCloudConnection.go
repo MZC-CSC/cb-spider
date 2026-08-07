@@ -169,6 +169,7 @@ func (cloudConn *TencentCloudConnection) CreateTagHandler() (irs.TagHandler, err
 		NLBClient:      cloudConn.NLBClient,
 		DiskClient:     cloudConn.DiskClient,
 		ClusterClient:  cloudConn.ClusterClient,
+		CDBClient:      cloudConn.CDBClient,
 	}
 	return &handler, nil
 }
@@ -184,6 +185,27 @@ func (cloudConn *TencentCloudConnection) CreateMonitoringHandler() (irs.Monitori
 
 func (cloudConn *TencentCloudConnection) CreateRDBMSHandler() (irs.RDBMSHandler, error) {
 	cblogger.Info("Tencent Cloud Driver: called CreateRDBMSHandler()!")
-	handler := trs.TencentRDBMSHandler{Region: cloudConn.Region, Client: cloudConn.CDBClient, VMClient: cloudConn.VMClient}
+	tagHandler := trs.TencentTagHandler{
+		Region:         cloudConn.Region,
+		TagClient:      cloudConn.TagClient,
+		VNetworkClient: cloudConn.VNetworkClient,
+		VMClient:       cloudConn.VMClient,
+		NLBClient:      cloudConn.NLBClient,
+		DiskClient:     cloudConn.DiskClient,
+		ClusterClient:  cloudConn.ClusterClient,
+		CDBClient:      cloudConn.CDBClient,
+	}
+	handler := trs.TencentRDBMSHandler{Region: cloudConn.Region, Client: cloudConn.CDBClient, VMClient: cloudConn.VMClient, TagHandler: &tagHandler}
+	return &handler, nil
+}
+
+func (cloudConn *TencentCloudConnection) CreateNICHandler() (irs.NICHandler, error) {
+	handler := trs.TencentNICHandler{Region: cloudConn.Region, VPCClient: cloudConn.VNetworkClient}
+	return &handler, nil
+}
+
+func (cloudConn *TencentCloudConnection) CreatePublicIPHandler() (irs.PublicIPHandler, error) {
+	cblogger.Info("Tencent Cloud Driver: called CreatePublicIPHandler()!")
+	handler := trs.TencentPublicIPHandler{Region: cloudConn.Region, VPCClient: cloudConn.VNetworkClient}
 	return &handler, nil
 }

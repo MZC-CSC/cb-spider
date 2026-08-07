@@ -1,5 +1,25 @@
 basePath: /spider
 definitions:
+  spider.AllS3BucketInfoList:
+    properties:
+      ResourceType:
+        type: string
+      allListInfo:
+        properties:
+          MappedInfoList:
+            items:
+              $ref: '#/definitions/spider.S3BucketWithIID'
+            type: array
+          OnlyCSPInfoList:
+            items:
+              $ref: '#/definitions/spider.S3BucketWithIID'
+            type: array
+          OnlySpiderList:
+            items:
+              $ref: '#/definitions/spider.IID'
+            type: array
+        type: object
+    type: object
   spider.DeletedResourceInfoList:
     properties:
       DeletedIIDList:
@@ -115,6 +135,15 @@ definitions:
       systemNetSent:
         type: string
     type: object
+  spider.S3BucketWithIID:
+    properties:
+      creationDate:
+        type: string
+      nameId:
+        type: string
+      systemId:
+        type: string
+    type: object
   spider.SystemInfo:
     properties:
       clockSpeed:
@@ -144,6 +173,22 @@ definitions:
       totalMemory:
         type: string
       uptime:
+        type: string
+    type: object
+  spider.TopologyLayoutInfo:
+    properties:
+      connectionName:
+        type: string
+      id:
+        description: '"connectionName::versionName"'
+        type: string
+      layoutJSON:
+        type: string
+      savedAt:
+        type: string
+      thumbnailBase64:
+        type: string
+      versionName:
         type: string
     type: object
   spider.VMFavoriteInfo:
@@ -848,6 +893,95 @@ definitions:
     x-enum-varnames:
     - MyImageAvailable
     - MyImageUnavailable
+  spider.NICInfo:
+    properties:
+      CreatedTime:
+        type: string
+      DeviceIndex:
+        description: 0=primary, 1,2,...=secondary
+        type: integer
+      IId:
+        allOf:
+        - $ref: '#/definitions/spider.IID'
+        description: '{NameId, SystemId}'
+      KeyValueList:
+        items:
+          $ref: '#/definitions/spider.KeyValue'
+        type: array
+      MACAddress:
+        type: string
+      OwnerVM:
+        allOf:
+        - $ref: '#/definitions/spider.IID'
+        description: VM this NIC is attached to
+      PrivateIP:
+        description: Primary private IP (convenience)
+        type: string
+      PrivateIPs:
+        description: All private IPs (primary first, then secondary)
+        items:
+          type: string
+        type: array
+      PublicIP:
+        description: Primary public IP (convenience)
+        type: string
+      PublicIPs:
+        description: Public IPs index-aligned to PrivateIPs ("" = no EIP for that
+          IP)
+        items:
+          type: string
+        type: array
+      SecurityGroupIIDs:
+        description: Attached security groups
+        items:
+          $ref: '#/definitions/spider.IID'
+        type: array
+      Status:
+        $ref: '#/definitions/spider.NICStatus'
+      SubnetIID:
+        allOf:
+        - $ref: '#/definitions/spider.IID'
+        description: Subnet this NIC belongs to
+      TagList:
+        items:
+          $ref: '#/definitions/spider.KeyValue'
+        type: array
+      VpcIID:
+        allOf:
+        - $ref: '#/definitions/spider.IID'
+        description: VPC this NIC belongs to
+    required:
+    - CreatedTime
+    - IId
+    - PrivateIP
+    - Status
+    - SubnetIID
+    - VpcIID
+    type: object
+  spider.NICStatus:
+    enum:
+    - Available
+    - Attached
+    - Deleting
+    - Error
+    - NotFound
+    type: string
+    x-enum-comments:
+      NICAttached: Attached to a VM
+      NICAvailable: Created, not attached to any VM
+      NICNotFound: Registered in Spider but not found in CSP
+    x-enum-descriptions:
+    - Created, not attached to any VM
+    - Attached to a VM
+    - ""
+    - ""
+    - Registered in Spider but not found in CSP
+    x-enum-varnames:
+    - NICAvailable
+    - NICAttached
+    - NICDeleting
+    - NICError
+    - NICNotFound
   spider.NLBInfo:
     description: Network Load Balancer (NLB) Information
     properties:
@@ -1111,6 +1245,73 @@ definitions:
     - CSPProductInfo
     - ProductId
     type: object
+  spider.PublicIPInfo:
+    properties:
+      CreatedTime:
+        description: Allocation time
+        type: string
+      IId:
+        allOf:
+        - $ref: '#/definitions/spider.IID'
+        description: '{NameId, SystemId}'
+      KeyValueList:
+        description: CSP-specific additional info
+        items:
+          $ref: '#/definitions/spider.KeyValue'
+        type: array
+      OwnedNIC:
+        allOf:
+        - $ref: '#/definitions/spider.IID'
+        description: Associated NIC (NameId=Spider NIC name, SystemId=CSP NIC ID)
+      OwnedPrivateIP:
+        description: The private IP on the NIC that this Public IP is mapped to
+        type: string
+      OwnedVM:
+        allOf:
+        - $ref: '#/definitions/spider.IID'
+        description: Associated VM (when Status is Associated)
+      PublicIPAddress:
+        description: Allocated public IP address
+        example: 52.10.20.30
+        type: string
+      Status:
+        allOf:
+        - $ref: '#/definitions/spider.PublicIPStatus'
+        description: Current status
+        example: Available
+      TagList:
+        description: Tags
+        items:
+          $ref: '#/definitions/spider.KeyValue'
+        type: array
+    required:
+    - CreatedTime
+    - IId
+    - PublicIPAddress
+    - Status
+    type: object
+  spider.PublicIPStatus:
+    enum:
+    - Available
+    - Associated
+    - Deleting
+    - Error
+    - NotFound
+    type: string
+    x-enum-comments:
+      PublicIPNotFound: Registered in Spider but not found in CSP
+    x-enum-descriptions:
+    - ""
+    - ""
+    - ""
+    - ""
+    - Registered in Spider but not found in CSP
+    x-enum-varnames:
+    - PublicIPAvailable
+    - PublicIPAssociated
+    - PublicIPDeleting
+    - PublicIPError
+    - PublicIPNotFound
   spider.Quota:
     properties:
       Available:
@@ -1154,6 +1355,14 @@ definitions:
     - Unit
     - Used
     type: object
+  spider.RDBMSDataSource:
+    enum:
+    - API
+    - Static
+    type: string
+    x-enum-varnames:
+    - DataSourceAPI
+    - DataSourceStatic
   spider.RDBMSInfo:
     description: Relational Database (RDBMS) Information
     properties:
@@ -1291,6 +1500,23 @@ definitions:
         items:
           type: string
         type: array
+      DataSource:
+        additionalProperties:
+          $ref: '#/definitions/spider.RDBMSDataSource'
+        description: |-
+          DataSource records, per field name (e.g. "StorageTypeOptions", "StorageSizeRange",
+          or "StorageSizeRange.Min"/"StorageSizeRange.Max" for a partially-static range),
+          whether that field's value above was obtained live from the CSP API ("API") or is
+          a fixed value ("Static") for this response. A field with no entry here is "API".
+        type: object
+      DataSourceNotes:
+        additionalProperties:
+          type: string
+        description: |-
+          DataSourceNotes optionally explains, per field name, why a field is marked "Static"
+          in DataSource (e.g. why the CSP has no live API for it, or what caused a live call
+          to fail this time).
+        type: object
       RequiresSecurityGroup:
         description: true if SecurityGroupNames is required at creation
         type: boolean
@@ -1341,6 +1567,9 @@ definitions:
         description: true if user can specify StorageType at creation; false if CSP
           sets it automatically (e.g., Azure, NCP)
         type: boolean
+      SupportsTag:
+        description: true if tagging is supported for RDBMS resources on this CSP
+        type: boolean
     type: object
   spider.RDBMSStatus:
     enum:
@@ -1373,6 +1602,8 @@ definitions:
     - nodegroup
     - filesystem
     - rdbms
+    - publicip
+    - nic
     type: string
     x-enum-varnames:
     - ALL
@@ -1390,6 +1621,8 @@ definitions:
     - NODEGROUP
     - FILESYSTEM
     - RDBMS
+    - PUBLICIP
+    - NIC
   spider.RegionInfo:
     properties:
       Region:
@@ -1588,7 +1821,13 @@ definitions:
         items:
           $ref: '#/definitions/spider.KeyValue'
         type: array
+      NICs:
+        description: all attached NICs with device context
+        items:
+          $ref: '#/definitions/spider.VMNICInfo'
+        type: array
       NetworkInterface:
+        description: Primary NIC ID (eth0); kept for backward compatibility
         example: eni-12345678
         type: string
       Platform:
@@ -1597,17 +1836,31 @@ definitions:
         description: LINUX | WINDOWS
         example: LINUX
       PrivateDNS:
+        description: Private DNS of eth0
         example: ip-192-168-1-1.ec2.internal
         type: string
       PrivateIP:
+        description: Primary private IP (eth0, for convenience)
         example: 192.168.1.1
         type: string
+      PrivateIPs:
+        description: All private IPs across all NICs (flat)
+        items:
+          type: string
+        type: array
       PublicDNS:
+        description: Public DNS of eth0
         example: ec2-1-2-3-4.compute-1.amazonaws.com
         type: string
       PublicIP:
+        description: Primary public IP (eth0, for convenience)
         example: 1.2.3.4
         type: string
+      PublicIPs:
+        description: All public IPs across all NICs (flat)
+        items:
+          type: string
+        type: array
       Region:
         allOf:
         - $ref: '#/definitions/spider.RegionInfo'
@@ -1690,6 +1943,33 @@ definitions:
     - VMSpecName
     - VMUserId
     - VpcIID
+    type: object
+  spider.VMNICInfo:
+    properties:
+      DeviceIndex:
+        description: 'Attachment order: 0=eth0 (primary), 1=eth1, ...'
+        type: integer
+      IId:
+        allOf:
+        - $ref: '#/definitions/spider.IID'
+        description: '{NameId: Spider NIC name or CSP ID, SystemId: CSP NIC ID}'
+      MACAddress:
+        description: Hardware MAC address
+        type: string
+      PrivateIPs:
+        description: All private IPs on this NIC (primary first, then secondary)
+        items:
+          type: string
+        type: array
+      PublicIPs:
+        description: All public IPs on this NIC (1:1 NAT per private IP)
+        items:
+          type: string
+        type: array
+      SubnetIID:
+        allOf:
+        - $ref: '#/definitions/spider.IID'
+        description: Subnet this NIC belongs to
     type: object
   spider.VMSpecInfo:
     properties:
@@ -2595,10 +2875,16 @@ definitions:
       myImageHandler:
         description: 'support: true, do not support: false'
         type: boolean
+      nichandler:
+        description: 'support: true, do not support: false'
+        type: boolean
       nlbhandler:
         description: 'support: true, do not support: false'
         type: boolean
       priceInfoHandler:
+        description: 'support: true, do not support: false'
+        type: boolean
+      publicIPHandler:
         description: 'support: true, do not support: false'
         type: boolean
       quotaInfoHandler:
@@ -2963,6 +3249,122 @@ definitions:
     - ConnectionName
     - ReqInfo
     type: object
+  spider.NICAttachRequest:
+    properties:
+      ConnectionName:
+        example: aws-connection
+        type: string
+      ReqInfo:
+        properties:
+          VMName:
+            example: my-vm-01
+            type: string
+        required:
+        - VMName
+        type: object
+    required:
+    - ConnectionName
+    - ReqInfo
+    type: object
+  spider.NICCreateRequest:
+    properties:
+      ConnectionName:
+        example: aws-connection
+        type: string
+      IDTransformMode:
+        example: "ON"
+        type: string
+      ReqInfo:
+        properties:
+          Name:
+            example: nic-01
+            type: string
+          SecurityGroupNames:
+            items:
+              type: string
+            type: array
+          SubnetName:
+            example: subnet-01
+            type: string
+          TagList:
+            items:
+              $ref: '#/definitions/spider.KeyValue'
+            type: array
+          VPCName:
+            example: vpc-01
+            type: string
+        required:
+        - Name
+        - SubnetName
+        - VPCName
+        type: object
+    required:
+    - ConnectionName
+    - ReqInfo
+    type: object
+  spider.NICListResponse:
+    properties:
+      nic:
+        items:
+          $ref: '#/definitions/spider.NICInfo'
+        type: array
+    type: object
+  spider.NICOSConfigScriptResponse:
+    properties:
+      ConnectionName:
+        description: ConnectionName used to generate this script.
+        example: azure-koreacentral
+        type: string
+      NICName:
+        description: NIC name the script applies to.
+        example: my-nic-01
+        type: string
+      Script:
+        description: |-
+          Shell script to run inside the VM OS as root after AttachNIC.
+          Empty string means no OS configuration is required (e.g. AWS).
+        example: |-
+          #!/bin/bash
+          ...
+        type: string
+    type: object
+  spider.NICPrivateIPRequest:
+    properties:
+      ConnectionName:
+        example: aws-connection
+        type: string
+      ReqInfo:
+        properties:
+          PrivateIP:
+            description: Leave empty for auto-assign
+            example: 10.0.1.50
+            type: string
+        type: object
+    required:
+    - ConnectionName
+    - ReqInfo
+    type: object
+  spider.NICRegisterRequest:
+    properties:
+      ConnectionName:
+        example: aws-connection
+        type: string
+      ReqInfo:
+        properties:
+          CSPId:
+            example: eni-0abc1234
+            type: string
+          Name:
+            example: nic-01
+            type: string
+        required:
+        - CSPId
+        - Name
+        type: object
+    required:
+    - ConnectionName
+    - ReqInfo
+    type: object
   spider.NLBAddVMsRequest:
     properties:
       ConnectionName:
@@ -3258,6 +3660,82 @@ definitions:
     required:
     - productfamily
     type: object
+  spider.PublicIPAssociateRequest:
+    properties:
+      ConnectionName:
+        example: aws-connection
+        type: string
+      ReqInfo:
+        properties:
+          NICName:
+            description: 'Non-NCP: required'
+            example: nic-01
+            type: string
+          PrivateIP:
+            description: 'Optional: specific private IP on NIC'
+            example: 10.0.1.11
+            type: string
+          VMName:
+            description: 'NCP: required'
+            example: my-vm-01
+            type: string
+        type: object
+    required:
+    - ConnectionName
+    - ReqInfo
+    type: object
+  spider.PublicIPCreateRequest:
+    properties:
+      ConnectionName:
+        example: aws-connection
+        type: string
+      IDTransformMode:
+        example: "ON"
+        type: string
+      ReqInfo:
+        properties:
+          Name:
+            example: publicip-01
+            type: string
+          TagList:
+            items:
+              $ref: '#/definitions/spider.KeyValue'
+            type: array
+        required:
+        - Name
+        type: object
+    required:
+    - ConnectionName
+    - ReqInfo
+    type: object
+  spider.PublicIPListResponse:
+    properties:
+      publicip:
+        items:
+          $ref: '#/definitions/spider.PublicIPInfo'
+        type: array
+    type: object
+  spider.PublicIPRegisterRequest:
+    properties:
+      ConnectionName:
+        example: aws-connection
+        type: string
+      ReqInfo:
+        properties:
+          CSPId:
+            example: eipalloc-0abc1234
+            type: string
+          Name:
+            example: publicip-01
+            type: string
+        required:
+        - CSPId
+        - Name
+        type: object
+    required:
+    - ConnectionName
+    - ReqInfo
+    type: object
   spider.QuotaResponse:
     properties:
       CSP:
@@ -3494,6 +3972,41 @@ definitions:
     - ConnectionName
     - ReqInfo
     type: object
+  spider.S3BucketRegisterRequest:
+    properties:
+      ConnectionName:
+        example: aws-connection
+        type: string
+      ReqInfo:
+        properties:
+          CSPId:
+            example: my-csp-bucket-name
+            type: string
+          Name:
+            example: my-bucket
+            type: string
+        required:
+        - CSPId
+        - Name
+        type: object
+    required:
+    - ConnectionName
+    - ReqInfo
+    type: object
+  spider.S3BucketWithIIDResponse:
+    properties:
+      CreationDate:
+        type: string
+      NameId:
+        example: my-bucket
+        type: string
+      SystemId:
+        example: my-csp-bucket-name
+        type: string
+    required:
+    - NameId
+    - SystemId
+    type: object
   spider.S3Error:
     properties:
       Code:
@@ -3602,6 +4115,24 @@ definitions:
     - Key
     - LastModified
     - Size
+    type: object
+  spider.SaveTopologyLayoutRequest:
+    properties:
+      ConnectionName:
+        type: string
+      LayoutJSON:
+        description: positions JSON
+        type: string
+      ThumbnailBase64:
+        description: base64 PNG
+        type: string
+      VersionName:
+        description: user label
+        type: string
+    required:
+    - ConnectionName
+    - LayoutJSON
+    - VersionName
     type: object
   spider.SecurityGroupCreateRequest:
     properties:
@@ -4217,15 +4748,33 @@ paths:
     get:
       consumes:
       - application/json
-      description: Retrieve a list of all Disk information associated with all connections.
+      description: Retrieve a comprehensive list of all Disk information associated
+        with a specific connection, <br> including those mapped between CB-Spider
+        and the CSP, <br> only registered in CB-Spider's metadata, <br> and only existing
+        in the CSP.
       operationId: list-all-disk-info
+      parameters:
+      - description: The name of the Connection to list Disk information for
+        in: query
+        name: ConnectionName
+        required: true
+        type: string
       produces:
       - application/json
       responses:
         "200":
-          description: List of all Disk information across all connections
+          description: List of all Disk information within the specified connection,
+            including Disks in CB-Spider only, CSP only, and mapped between both.
           schema:
-            $ref: '#/definitions/spider.AllResourceListResponse'
+            $ref: '#/definitions/spider.AllResourceInfoListResponse'
+        "400":
+          description: Bad Request, possibly due to invalid query parameter
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "404":
+          description: Resource Not Found
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
         "500":
           description: Internal Server Error
           schema:
@@ -4275,15 +4824,33 @@ paths:
     get:
       consumes:
       - application/json
-      description: Retrieve a list of KeyPair information associated with all connections.
+      description: Retrieve a comprehensive list of all KeyPair information associated
+        with a specific connection, <br> including those mapped between CB-Spider
+        and the CSP, <br> only registered in CB-Spider's metadata, <br> and only existing
+        in the CSP.
       operationId: list-all-keypair-info
+      parameters:
+      - description: The name of the Connection to list KeyPair information for
+        in: query
+        name: ConnectionName
+        required: true
+        type: string
       produces:
       - application/json
       responses:
         "200":
-          description: List of KeyPair information associated with all connections
+          description: List of all KeyPair information within the specified connection,
+            including KeyPairs in CB-Spider only, CSP only, and mapped between both.
           schema:
             $ref: '#/definitions/spider.AllResourceInfoListResponse'
+        "400":
+          description: Bad Request, possibly due to invalid query parameter
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "404":
+          description: Resource Not Found
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
         "500":
           description: Internal Server Error
           schema:
@@ -4491,15 +5058,33 @@ paths:
     get:
       consumes:
       - application/json
-      description: Retrieve a list of all RDBMS information associated with all connections.
+      description: Retrieve a comprehensive list of all RDBMS information associated
+        with a specific connection, <br> including those mapped between CB-Spider
+        and the CSP, <br> only registered in CB-Spider's metadata, <br> and only existing
+        in the CSP.
       operationId: list-all-rdbms-info
+      parameters:
+      - description: The name of the Connection to list RDBMS information for
+        in: query
+        name: ConnectionName
+        required: true
+        type: string
       produces:
       - application/json
       responses:
         "200":
-          description: List of all RDBMS information across all connections
+          description: List of all RDBMS information within the specified connection,
+            including RDBMS in CB-Spider only, CSP only, and mapped between both.
           schema:
-            $ref: '#/definitions/spider.AllResourceListResponse'
+            $ref: '#/definitions/spider.AllResourceInfoListResponse'
+        "400":
+          description: Bad Request, possibly due to invalid query parameter
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "404":
+          description: Resource Not Found
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
         "500":
           description: Internal Server Error
           schema:
@@ -4507,6 +5092,73 @@ paths:
       summary: List All RDBMS Info
       tags:
       - '[RDBMS Management]'
+  /alls3:
+    get:
+      consumes:
+      - application/json
+      description: Retrieve a comprehensive list of all S3 Buckets associated with
+        a specific connection, <br> including those mapped between CB-Spider and the
+        CSP, <br> only registered in CB-Spider's metadata, <br> and only existing
+        in the CSP. (CB-Spider special feature)
+      operationId: list-all-s3-bucket
+      parameters:
+      - description: The name of the Connection to list S3 Buckets for
+        in: query
+        name: ConnectionName
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of all S3 Buckets within the specified connection, including
+            Buckets in CB-Spider only, CSP only, and mapped between both.
+          schema:
+            $ref: '#/definitions/spider.AllResourceListResponse'
+        "400":
+          description: Bad Request, possibly due to invalid query parameter
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: List All S3 Buckets in a Connection
+      tags:
+      - '[S3 Object Storage Management]'
+  /alls3info:
+    get:
+      consumes:
+      - application/json
+      description: Retrieve detailed info of all S3 Buckets associated with a specific
+        connection, <br> including those mapped between CB-Spider and the CSP, <br>
+        only registered in CB-Spider's metadata, <br> and only existing in the CSP.
+        (CB-Spider special feature)
+      operationId: list-all-s3-bucket-info
+      parameters:
+      - description: The name of the Connection to list S3 Bucket info for
+        in: query
+        name: ConnectionName
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Detailed info of all S3 Buckets within the specified connection
+          schema:
+            $ref: '#/definitions/spider.AllS3BucketInfoList'
+        "400":
+          description: Bad Request, possibly due to invalid query parameter
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: List All S3 Bucket Info
+      tags:
+      - '[S3 Object Storage Management]'
   /allsecuritygroup:
     get:
       consumes:
@@ -4551,16 +5203,35 @@ paths:
     get:
       consumes:
       - application/json
-      description: Retrieve a list of Security Group information associated with all
-        connections.
+      description: Retrieve a comprehensive list of all Security Group information
+        associated with a specific connection, <br> including those mapped between
+        CB-Spider and the CSP, <br> only registered in CB-Spider's metadata, <br>
+        and only existing in the CSP.
       operationId: list-all-securitygroup-info
+      parameters:
+      - description: The name of the Connection to list Security Group information
+          for
+        in: query
+        name: ConnectionName
+        required: true
+        type: string
       produces:
       - application/json
       responses:
         "200":
-          description: List of all Security Group information
+          description: List of all Security Group information within the specified
+            connection, including Security Groups in CB-Spider only, CSP only, and
+            mapped between both.
           schema:
             $ref: '#/definitions/spider.AllResourceInfoListResponse'
+        "400":
+          description: Bad Request, possibly due to invalid query parameter
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "404":
+          description: Resource Not Found
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
         "500":
           description: Internal Server Error
           schema:
@@ -5669,6 +6340,48 @@ paths:
       summary: Count MyImages by Connection
       tags:
       - '[MyImage Management]'
+  /countnic:
+    get:
+      description: Get the total number of NICs registered across all connections.
+      operationId: count-all-nics
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Total count of NICs
+          schema:
+            $ref: '#/definitions/spider.CountResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Count All NICs
+      tags:
+      - '[NIC Management]'
+  /countnic/{ConnectionName}:
+    get:
+      description: Get the total number of NICs for a specific connection.
+      operationId: count-nic-by-connection
+      parameters:
+      - description: The name of the Connection
+        in: path
+        name: ConnectionName
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Total count of NICs for the connection
+          schema:
+            $ref: '#/definitions/spider.CountResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Count NICs by Connection
+      tags:
+      - '[NIC Management]'
   /countnlb:
     get:
       description: Get the total number of Network Load Balancers (NLBs) across all
@@ -5713,6 +6426,48 @@ paths:
       summary: Count NLBs by Connection
       tags:
       - '[NLB Management]'
+  /countpublicip:
+    get:
+      description: Get the total number of Public IPs registered across all connections.
+      operationId: count-all-publicips
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Total count of Public IPs
+          schema:
+            $ref: '#/definitions/spider.CountResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Count All Public IPs
+      tags:
+      - '[PublicIP Management]'
+  /countpublicip/{ConnectionName}:
+    get:
+      description: Get the total number of Public IPs for a specific connection.
+      operationId: count-publicip-by-connection
+      parameters:
+      - description: The name of the Connection
+        in: path
+        name: ConnectionName
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Total count of Public IPs for the connection
+          schema:
+            $ref: '#/definitions/spider.CountResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Count Public IPs by Connection
+      tags:
+      - '[PublicIP Management]'
   /countrdbms:
     get:
       description: Get the total number of RDBMS instances across all connections.
@@ -5755,6 +6510,25 @@ paths:
       summary: Count RDBMS by Connection
       tags:
       - '[RDBMS Management]'
+  /counts3:
+    get:
+      description: Get the total number of S3 Buckets registered across all connections.
+        (CB-Spider special feature)
+      operationId: count-all-s3-bucket
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Total count of S3 Buckets
+          schema:
+            $ref: '#/definitions/spider.CountResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Count All S3 Buckets
+      tags:
+      - '[S3 Object Storage Management]'
   /counts3/{ConnectionName}:
     get:
       description: Get the total number of S3 buckets for a specific connection.
@@ -6302,6 +7076,48 @@ paths:
       summary: Delete CSP RDBMS
       tags:
       - '[RDBMS Management]'
+  /csps3/{Id}:
+    delete:
+      consumes:
+      - application/json
+      description: Delete a specified CSP S3 Bucket directly from the CSP without
+        affecting CB-Spider metadata. (CB-Spider special feature)
+      operationId: delete-csp-s3-bucket
+      parameters:
+      - description: Request body for deleting a CSP S3 Bucket
+        in: body
+        name: ConnectionRequest
+        required: true
+        schema:
+          $ref: '#/definitions/spider.ConnectionRequest'
+      - description: The CSP S3 Bucket ID (system name) to delete
+        in: path
+        name: Id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Result of the delete operation
+          schema:
+            $ref: '#/definitions/spider.BooleanInfo'
+        "400":
+          description: Bad Request, possibly due to invalid JSON structure or missing
+            fields
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "404":
+          description: Resource Not Found
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Delete CSP S3 Bucket
+      tags:
+      - '[S3 Object Storage Management]'
   /cspsecuritygroup/{Id}:
     delete:
       consumes:
@@ -7990,6 +8806,292 @@ paths:
       summary: Get MyImage
       tags:
       - '[MyImage Management]'
+  /nic:
+    get:
+      consumes:
+      - application/json
+      description: Retrieve a list of Network Interface Cards.
+      operationId: list-nic
+      parameters:
+      - description: Request body containing the Connection Name
+        in: body
+        name: ConnectionRequest
+        required: true
+        schema:
+          $ref: '#/definitions/spider.ConnectionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of NICs
+          schema:
+            $ref: '#/definitions/spider.NICListResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: List NICs
+      tags:
+      - '[NIC Management]'
+    post:
+      consumes:
+      - application/json
+      description: Create a new Network Interface Card (NIC).
+      operationId: create-nic
+      parameters:
+      - description: Request body for creating a NIC
+        in: body
+        name: NICCreateRequest
+        required: true
+        schema:
+          $ref: '#/definitions/spider.NICCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Details of the created NIC
+          schema:
+            $ref: '#/definitions/spider.NICInfo'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Create NIC
+      tags:
+      - '[NIC Management]'
+  /nic/{Name}:
+    delete:
+      consumes:
+      - application/json
+      description: Delete a NIC.
+      operationId: delete-nic
+      parameters:
+      - description: Request body containing the Connection Name
+        in: body
+        name: ConnectionRequest
+        required: true
+        schema:
+          $ref: '#/definitions/spider.ConnectionRequest'
+      - description: The name of the NIC to delete
+        in: path
+        name: Name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Result of the delete operation
+          schema:
+            $ref: '#/definitions/spider.BooleanInfo'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Delete NIC
+      tags:
+      - '[NIC Management]'
+    get:
+      consumes:
+      - application/json
+      description: Retrieve details of a specific NIC.
+      operationId: get-nic
+      parameters:
+      - description: Request body containing the Connection Name
+        in: body
+        name: ConnectionRequest
+        required: true
+        schema:
+          $ref: '#/definitions/spider.ConnectionRequest'
+      - description: The name of the NIC
+        in: path
+        name: Name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Details of the NIC
+          schema:
+            $ref: '#/definitions/spider.NICInfo'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Get NIC
+      tags:
+      - '[NIC Management]'
+  /nic/{Name}/attach:
+    put:
+      consumes:
+      - application/json
+      description: Attach a NIC to a VM instance.
+      operationId: attach-nic
+      parameters:
+      - description: Request body for attaching a NIC to a VM
+        in: body
+        name: NICAttachRequest
+        required: true
+        schema:
+          $ref: '#/definitions/spider.NICAttachRequest'
+      - description: The name of the NIC
+        in: path
+        name: Name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Updated NIC info
+          schema:
+            $ref: '#/definitions/spider.NICInfo'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Attach NIC to VM
+      tags:
+      - '[NIC Management]'
+  /nic/{Name}/detach:
+    put:
+      consumes:
+      - application/json
+      description: Detach a NIC from its VM instance.
+      operationId: detach-nic
+      parameters:
+      - description: Request body containing the Connection Name
+        in: body
+        name: ConnectionRequest
+        required: true
+        schema:
+          $ref: '#/definitions/spider.ConnectionRequest'
+      - description: The name of the NIC
+        in: path
+        name: Name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Result of the detach operation
+          schema:
+            $ref: '#/definitions/spider.BooleanInfo'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Detach NIC from VM
+      tags:
+      - '[NIC Management]'
+  /nic/{Name}/osconfigscript:
+    get:
+      consumes:
+      - application/json
+      description: |-
+        Return a bash script to be executed inside the VM OS after a secondary NIC is attached.
+        AWS uses DHCP-based routing and returns an empty script.
+        Azure, Alibaba, Tencent, IBM, and OpenStack require manual OS-level interface
+        and routing table configuration; this endpoint returns the ready-to-run script.
+      operationId: get-nic-osconfigscript
+      parameters:
+      - description: Request body containing the Connection Name
+        in: body
+        name: ConnectionRequest
+        required: true
+        schema:
+          $ref: '#/definitions/spider.ConnectionRequest'
+      - description: The name of the NIC
+        in: path
+        name: Name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OS configuration script
+          schema:
+            $ref: '#/definitions/spider.NICOSConfigScriptResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Get NIC OS Configuration Script
+      tags:
+      - '[NIC Management]'
+  /nic/{Name}/privateip:
+    post:
+      consumes:
+      - application/json
+      description: Add a secondary private IP to a NIC. Leave PrivateIP empty for
+        CSP auto-assignment.
+      operationId: add-nic-privateip
+      parameters:
+      - description: Request body
+        in: body
+        name: NICPrivateIPRequest
+        required: true
+        schema:
+          $ref: '#/definitions/spider.NICPrivateIPRequest'
+      - description: The name of the NIC
+        in: path
+        name: Name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Updated NIC info
+          schema:
+            $ref: '#/definitions/spider.NICInfo'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Add Private IP to NIC
+      tags:
+      - '[NIC Management]'
+  /nic/{Name}/privateip/{IP}:
+    delete:
+      consumes:
+      - application/json
+      description: Remove a secondary private IP from a NIC.
+      operationId: remove-nic-privateip
+      parameters:
+      - description: Request body containing the Connection Name
+        in: body
+        name: ConnectionRequest
+        required: true
+        schema:
+          $ref: '#/definitions/spider.ConnectionRequest'
+      - description: The name of the NIC
+        in: path
+        name: Name
+        required: true
+        type: string
+      - description: The private IP address to remove
+        in: path
+        name: IP
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Result of the remove operation
+          schema:
+            $ref: '#/definitions/spider.BooleanInfo'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Remove Private IP from NIC
+      tags:
+      - '[NIC Management]'
   /nlb:
     get:
       consumes:
@@ -8570,6 +9672,215 @@ paths:
       summary: List Product Families
       tags:
       - '[Cloud Metadata] VM Price Info'
+  /publicip:
+    get:
+      consumes:
+      - application/json
+      description: Retrieve a list of Public IP addresses.
+      operationId: list-publicip
+      parameters:
+      - description: Request body containing the Connection Name
+        in: body
+        name: ConnectionRequest
+        required: true
+        schema:
+          $ref: '#/definitions/spider.ConnectionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of Public IPs
+          schema:
+            $ref: '#/definitions/spider.PublicIPListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: List Public IPs
+      tags:
+      - '[PublicIP Management]'
+    post:
+      consumes:
+      - application/json
+      description: Allocate a new Public IP address.
+      operationId: create-publicip
+      parameters:
+      - description: Request body for creating a Public IP
+        in: body
+        name: PublicIPCreateRequest
+        required: true
+        schema:
+          $ref: '#/definitions/spider.PublicIPCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Details of the created Public IP
+          schema:
+            $ref: '#/definitions/spider.PublicIPInfo'
+        "400":
+          description: Bad Request, possibly due to invalid JSON structure or missing
+            fields
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Create Public IP
+      tags:
+      - '[PublicIP Management]'
+  /publicip/{Name}:
+    delete:
+      consumes:
+      - application/json
+      description: Release (delete) a Public IP address.
+      operationId: delete-publicip
+      parameters:
+      - description: Request body containing the Connection Name
+        in: body
+        name: ConnectionRequest
+        required: true
+        schema:
+          $ref: '#/definitions/spider.ConnectionRequest'
+      - description: The name of the Public IP to delete
+        in: path
+        name: Name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Result of the delete operation
+          schema:
+            $ref: '#/definitions/spider.BooleanInfo'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Delete Public IP
+      tags:
+      - '[PublicIP Management]'
+    get:
+      consumes:
+      - application/json
+      description: Retrieve details of a specific Public IP.
+      operationId: get-publicip
+      parameters:
+      - description: Request body containing the Connection Name
+        in: body
+        name: ConnectionRequest
+        required: true
+        schema:
+          $ref: '#/definitions/spider.ConnectionRequest'
+      - description: The name of the Public IP
+        in: path
+        name: Name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Details of the Public IP
+          schema:
+            $ref: '#/definitions/spider.PublicIPInfo'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Get Public IP
+      tags:
+      - '[PublicIP Management]'
+  /publicip/{Name}/associate:
+    put:
+      consumes:
+      - application/json
+      description: Associate a Public IP address with a VM.
+      operationId: associate-publicip
+      parameters:
+      - description: Request body for associating a Public IP with a VM
+        in: body
+        name: PublicIPAssociateRequest
+        required: true
+        schema:
+          $ref: '#/definitions/spider.PublicIPAssociateRequest'
+      - description: The name of the Public IP
+        in: path
+        name: Name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Updated Public IP info
+          schema:
+            $ref: '#/definitions/spider.PublicIPInfo'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Associate Public IP with VM
+      tags:
+      - '[PublicIP Management]'
+  /publicip/{Name}/disassociate:
+    put:
+      consumes:
+      - application/json
+      description: Remove the VM association from a Public IP address.
+      operationId: disassociate-publicip
+      parameters:
+      - description: Request body containing the Connection Name
+        in: body
+        name: ConnectionRequest
+        required: true
+        schema:
+          $ref: '#/definitions/spider.ConnectionRequest'
+      - description: The name of the Public IP
+        in: path
+        name: Name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Result of the disassociate operation
+          schema:
+            $ref: '#/definitions/spider.BooleanInfo'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Disassociate Public IP from VM
+      tags:
+      - '[PublicIP Management]'
   /quotainfo:
     get:
       consumes:
@@ -8812,12 +10123,16 @@ paths:
         name: Name
         required: true
         type: string
-      - description: ConnectionName
-        in: body
-        name: RDBMSDatabaseRequest
+      - description: The name of the Connection
+        in: query
+        name: ConnectionName
         required: true
-        schema:
-          $ref: '#/definitions/spider.RDBMSDatabaseRequest'
+        type: string
+      - description: The master user password (required by SQL-based drivers such
+          as AWS and IBM)
+        in: query
+        name: MasterUserPassword
+        type: string
       produces:
       - application/json
       responses:
@@ -9475,6 +10790,65 @@ paths:
       summary: Unregister MyImage
       tags:
       - '[MyImage Management]'
+  /regnic:
+    post:
+      consumes:
+      - application/json
+      description: Register an existing NIC with the specified name and CSP ID.
+      operationId: register-nic
+      parameters:
+      - description: Request body for registering a NIC
+        in: body
+        name: NICRegisterRequest
+        required: true
+        schema:
+          $ref: '#/definitions/spider.NICRegisterRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Details of the registered NIC
+          schema:
+            $ref: '#/definitions/spider.NICInfo'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Register NIC
+      tags:
+      - '[NIC Management]'
+  /regnic/{Name}:
+    delete:
+      consumes:
+      - application/json
+      description: Unregister a NIC with the specified name.
+      operationId: unregister-nic
+      parameters:
+      - description: Request body for unregistering a NIC
+        in: body
+        name: ConnectionRequest
+        required: true
+        schema:
+          $ref: '#/definitions/spider.ConnectionRequest'
+      - description: The name of the NIC to unregister
+        in: path
+        name: Name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Result of the unregister operation
+          schema:
+            $ref: '#/definitions/spider.BooleanInfo'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Unregister NIC
+      tags:
+      - '[NIC Management]'
   /regnlb:
     post:
       consumes:
@@ -9553,6 +10927,83 @@ paths:
       summary: Unregister NLB
       tags:
       - '[NLB Management]'
+  /regpublicip:
+    post:
+      consumes:
+      - application/json
+      description: Register a new Public IP with the specified name and CSP ID.
+      operationId: register-publicip
+      parameters:
+      - description: Request body for registering a Public IP
+        in: body
+        name: PublicIPRegisterRequest
+        required: true
+        schema:
+          $ref: '#/definitions/spider.PublicIPRegisterRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Details of the registered Public IP
+          schema:
+            $ref: '#/definitions/spider.PublicIPInfo'
+        "400":
+          description: Bad Request, possibly due to invalid JSON structure or missing
+            fields
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "404":
+          description: Resource Not Found
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Register Public IP
+      tags:
+      - '[PublicIP Management]'
+  /regpublicip/{Name}:
+    delete:
+      consumes:
+      - application/json
+      description: Unregister a Public IP with the specified name.
+      operationId: unregister-publicip
+      parameters:
+      - description: Request body for unregistering a Public IP
+        in: body
+        name: ConnectionRequest
+        required: true
+        schema:
+          $ref: '#/definitions/spider.ConnectionRequest'
+      - description: The name of the Public IP to unregister
+        in: path
+        name: Name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Result of the unregister operation
+          schema:
+            $ref: '#/definitions/spider.BooleanInfo'
+        "400":
+          description: Bad Request, possibly due to invalid JSON structure or missing
+            fields
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "404":
+          description: Resource Not Found
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Unregister Public IP
+      tags:
+      - '[PublicIP Management]'
   /regrdbms:
     post:
       consumes:
@@ -9630,6 +11081,85 @@ paths:
       summary: Unregister RDBMS
       tags:
       - '[RDBMS Management]'
+  /regs3:
+    post:
+      consumes:
+      - application/json
+      description: Register an existing CSP S3 bucket into CB-Spider metadata with
+        a user-defined name. (CB-Spider special feature)
+      operationId: register-s3-bucket
+      parameters:
+      - description: Request body for registering an S3 Bucket
+        in: body
+        name: S3BucketRegisterRequest
+        required: true
+        schema:
+          $ref: '#/definitions/spider.S3BucketRegisterRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Details of the registered S3 Bucket
+          schema:
+            $ref: '#/definitions/spider.S3BucketWithIIDResponse'
+        "400":
+          description: Bad Request, possibly due to invalid JSON structure or missing
+            fields
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "404":
+          description: Resource Not Found
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Register S3 Bucket
+      tags:
+      - '[S3 Object Storage Management]'
+  /regs3/{Name}:
+    delete:
+      consumes:
+      - application/json
+      description: Remove an S3 bucket mapping from CB-Spider metadata without deleting
+        it from the CSP. (CB-Spider special feature)
+      operationId: unregister-s3-bucket
+      parameters:
+      - description: Request body for unregistering an S3 Bucket
+        in: body
+        name: ConnectionRequest
+        required: true
+        schema:
+          $ref: '#/definitions/spider.ConnectionRequest'
+      - description: The name of the S3 Bucket to unregister
+        in: path
+        name: Name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Result of the unregister operation
+          schema:
+            $ref: '#/definitions/spider.BooleanInfo'
+        "400":
+          description: Bad Request, possibly due to invalid JSON structure or missing
+            fields
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "404":
+          description: Resource Not Found
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Unregister S3 Bucket
+      tags:
+      - '[S3 Object Storage Management]'
   /regsecuritygroup:
     post:
       consumes:
@@ -11261,6 +12791,95 @@ paths:
       summary: Get Tag
       tags:
       - '[Tag Management]'
+  /topology/layout:
+    delete:
+      operationId: delete-topology-layout
+      parameters:
+      - description: Connection config name
+        in: query
+        name: ConnectionName
+        required: true
+        type: string
+      - description: Version label to delete
+        in: query
+        name: VersionName
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Result
+          schema:
+            $ref: '#/definitions/spider.BooleanInfo'
+      summary: Delete one named topology layout version
+      tags:
+      - '[Topology]'
+    get:
+      operationId: list-topology-layouts
+      parameters:
+      - description: Connection config name
+        in: query
+        name: ConnectionName
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of saved versions
+          schema:
+            items:
+              $ref: '#/definitions/spider.TopologyLayoutInfo'
+            type: array
+      summary: List all saved topology layout versions
+      tags:
+      - '[Topology]'
+    post:
+      consumes:
+      - application/json
+      operationId: save-topology-layout
+      parameters:
+      - description: Layout to save
+        in: body
+        name: SaveTopologyLayoutRequest
+        required: true
+        schema:
+          $ref: '#/definitions/spider.SaveTopologyLayoutRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Result
+          schema:
+            $ref: '#/definitions/spider.BooleanInfo'
+      summary: Save (upsert) a named topology layout version
+      tags:
+      - '[Topology]'
+  /topology/layout/version:
+    get:
+      operationId: get-topology-layout
+      parameters:
+      - description: Connection config name
+        in: query
+        name: ConnectionName
+        required: true
+        type: string
+      - description: Version label
+        in: query
+        name: VersionName
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Full layout info
+          schema:
+            $ref: '#/definitions/spider.TopologyLayoutInfo'
+      summary: Get one saved topology layout version (full LayoutJSON)
+      tags:
+      - '[Topology]'
   /version:
     get:
       consumes:

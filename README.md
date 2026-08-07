@@ -49,7 +49,7 @@ If you encounter any difficulties while using Cloud-Barista, please let us know.
 | Provider      | VM Price<br>Info | Region/Zone<br>Info | Image<br>Info | VMSpec<br>Info | VPC<br>Subnet       | Security<br>Group | VM KeyPair      | VM             | Disk | MyImage | NLB | K8S | Object<br> Storage |
 |:-------------:|:-------------:|:-------------------:|:-------------:|:--------------:|:-------------------:|:-----------------:|:---------------:|:--------------:|:----:|:---:|:-------:|:-----------:|:-----------:|
 | AWS           | O             | O                   | O             | O              | O                   | O                 | O               | O              | O    | O   | O       | O        | O        |
-| Azure         | O             | O                  | O             | O              | O                   | O                 | O               | O              | O    | O   | O       | O        | WIP        |
+| Azure         | O             | O                  | O             | O              | O                   | O                 | O               | O              | O    | O   | O       | O        | O        |
 | GCP           | O             | O                   | O             | O              | O                   | O                 | O               | O              | O    | O   | O       | O        | O        |
 | Alibaba       | O             | O                   | O             | O              | O                   | O                 | O               | O              | O    | O   | O       | O           | O        |
 | Tencent       | O             | O                   | O             | O              | O                   | O                 | O               | O              | O    | O   | O       | O           | O        |
@@ -57,7 +57,7 @@ If you encounter any difficulties while using Cloud-Barista, please let us know.
 | OpenStack     | NA             | O                   | O             | O              | O                   | O                 | O               | O              | O    | O   | O       | TBD           | O        |
 | NCP           | O            | O                   | O             | O              | O                   | O                 | O               | O              | O    | O   | O       | https://github.com/cloud-barista/cb-spider/issues/1607           | O        |
 | NHN           | NA             | O                   | O             | O              | O                 | O                 | O               | O<br>(Note1)   | O    | O    | O     | O           | O        |
-| KT            | NA             | O                   | O             | O              | O<br>(Type1)       | O                 | O               | O              | O    | O   | O<br>(Note2)| TBD  | O        |
+| KT            | NA             | O                   | O             | O              | O<br>(Type1)       | O                 | O               | O              | O    | O   | https://github.com/cloud-barista/cb-spider/issues/1718<br>(Note2)| TBD  | O        |
 | KT Classic    | NA             | O                   | O             | O              | O<br>(Type2)       | O                 | O               | O              | O    | O   | O       | NA          | -        |
 
 ※ WIP: Work In Progress,  NA: Not Applicable,  -: Excluded (Classic Resource)  
@@ -108,6 +108,8 @@ The [**Quick Start Guide**](https://github.com/cloud-barista/cb-spider/wiki/Quic
 | [Quick Start Guide](https://github.com/cloud-barista/cb-spider/wiki/Quick-Start-Guide) | Start server & create VMs on AWS + GCP in minutes |
 | [Docker-based Start Guide](https://github.com/cloud-barista/cb-spider/wiki/Docker-based-Start-Guide) | Run CB-Spider using Docker |
 | [Source-based Start Guide](https://github.com/cloud-barista/cb-spider/wiki/Source-based-Start-Guide) | Build and run from source |
+| [Server Configurations](https://github.com/cloud-barista/cb-spider/wiki/CB%E2%80%90Spider-Server-Configuration) | Configure CB-Spider server settings |
+| [Authentication Guide](https://github.com/cloud-barista/cb-spider/wiki/Authentication-Guide) | Configure REST API authentication |
 | [How to get CSP Credentials](https://github.com/cloud-barista/cb-spider/wiki/How-to-get-CSP-Credentials) | Obtain credentials for each cloud provider |
 
 ### API & Tools

@@ -97,9 +97,11 @@ func (AzureDriver) GetDriverCapability() idrv.DriverCapabilityInfo {
 
 	drvCapabilityInfo.TagHandler = true
 	// ires.SUBNET: not supported (Azure: tagging to VPC)
-	drvCapabilityInfo.TagSupportResourceType = []ires.RSType{ires.VPC, ires.SG, ires.KEY, ires.VM, ires.NLB, ires.DISK, ires.MYIMAGE, ires.CLUSTER}
+	drvCapabilityInfo.TagSupportResourceType = []ires.RSType{ires.VPC, ires.SG, ires.KEY, ires.VM, ires.NLB, ires.DISK, ires.MYIMAGE, ires.CLUSTER, ires.RDBMS}
 
 	drvCapabilityInfo.QuotaInfoHandler = true
+
+	drvCapabilityInfo.PublicIPHandler = true
 
 	drvCapabilityInfo.VPC_CIDR = true
 
