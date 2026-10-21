@@ -26,14 +26,15 @@ import (
 )
 
 type AwsClusterHandler struct {
-	Region      idrv.RegionInfo
-	Client      *eks.EKS
-	EC2Client   *ec2.EC2
-	ELBClient   *elb.ELB // Classic ELB client, used to clean up Load Balancers that EKS clusters auto-create (ref: cloud-barista/cb-spider#1208)
-	Iam         *iam.IAM
-	StsClient   *sts.STS
-	AutoScaling *autoscaling.AutoScaling
-	TagHandler  *AwsTagHandler // 2024-07-18 TagHandler add
+	Region         idrv.RegionInfo
+	CredentialInfo idrv.CredentialInfo // used by the aws-sdk-go-v2 EKS client (ClusterEBSCSIPodIdentity.go)
+	Client         *eks.EKS
+	EC2Client      *ec2.EC2
+	ELBClient      *elb.ELB // Classic ELB client, used to clean up Load Balancers that EKS clusters auto-create (ref: cloud-barista/cb-spider#1208)
+	Iam            *iam.IAM
+	StsClient      *sts.STS
+	AutoScaling    *autoscaling.AutoScaling
+	TagHandler     *AwsTagHandler // 2024-07-18 TagHandler add
 }
 
 const (
@@ -1048,6 +1049,12 @@ func (ClusterHandler *AwsClusterHandler) AddNodeGroup(clusterIID irs.IID, nodeGr
 		return irs.NodeGroupInfo{}, err
 	}
 
+	// Clusters created by an earlier version run the EBS CSI driver on the node role through IMDS,
+	// which fails on nodes with IMDS hop limit 1. Best effort: a failure here must not block the node group.
+	if err := ClusterHandler.ensureEBSCSIDriverPodIdentity(clusterIID.SystemId); err != nil {
+		cblogger.Errorf("Failed to ensure EBS CSI driver pod identity: %v", err)
+	}
+
 	networkInfo := clusterInfo.Network
 	var subnetList []*string
 	for _, subnet := range networkInfo.SubnetIIDs {
@@ -1184,27 +1191,12 @@ func (ClusterHandler *AwsClusterHandler) AddNodeGroup(clusterIID irs.IID, nodeGr
 		input.DiskSize = aws.Int64(rootDiskSize)
 	}
 
-	spiderLaunchTemplate := false
 	if useLaunchTemplate {
 		input.LaunchTemplate = &eks.LaunchTemplateSpecification{
 			Id:      launchTemplateID,
 			Version: launchTemplateVersion,
 		}
 		// DiskSize cannot be combined with LaunchTemplate.
-		input.DiskSize = nil
-	} else {
-		// Launch Template with IMDS HttpPutResponseHopLimit=2 so that every node the Auto Scaling group
-		// launches (including after scale out/in) lets Pods reach the node role: #1487
-		ltID, ltErr := ClusterHandler.createNodeGroupLaunchTemplate(clusterIID.SystemId, nodeGroupReqInfo.IId.NameId, amiType,
-			nodeGroupReqInfo.KeyPairIID.SystemId, nodeSecurityGroupList, rootDiskSize)
-		if ltErr != nil {
-			cblogger.Error(ltErr)
-			return irs.NodeGroupInfo{}, ltErr
-		}
-		spiderLaunchTemplate = true
-		input.LaunchTemplate = &eks.LaunchTemplateSpecification{Id: ltID}
-		// RemoteAccess and DiskSize cannot be combined with LaunchTemplate: key pair, security groups and disk size are in the template.
-		input.RemoteAccess = nil
 		input.DiskSize = nil
 	}
 
@@ -1219,11 +1211,6 @@ func (ClusterHandler *AwsClusterHandler) AddNodeGroup(clusterIID irs.IID, nodeGr
 	result, err := ClusterHandler.Client.CreateNodegroup(input) // async
 	if err != nil {
 		cblogger.Error(err)
-		if spiderLaunchTemplate {
-			if delErr := ClusterHandler.deleteNodeGroupLaunchTemplate(clusterIID.SystemId, nodeGroupReqInfo.IId.NameId); delErr != nil {
-				cblogger.Error(delErr)
-			}
-		}
 		return irs.NodeGroupInfo{}, err
 	}
 
@@ -1273,10 +1260,17 @@ func (ClusterHandler *AwsClusterHandler) InstallEBSCSIDriverAndPodIdentityAgentI
 	csiDriverExists := false
 	podIdentityAgentExists := false
 	for _, addon := range addonList.Addons {
-		if aws.StringValue(addon) == "aws-ebs-csi-driver" {
+		if aws.StringValue(addon) == ebsCSIDriverAddonName {
 			csiDriverExists = true
 		} else if aws.StringValue(addon) == "eks-pod-identity-agent" {
 			podIdentityAgentExists = true
+		}
+	}
+
+	// An EBS CSI driver installed by an earlier version has no Pod Identity association.
+	if csiDriverExists {
+		if err := ClusterHandler.ensureEBSCSIDriverPodIdentity(clusterID); err != nil {
+			cblogger.Errorf("Failed to ensure EBS CSI driver pod identity: %v", err)
 		}
 	}
 
@@ -1284,6 +1278,15 @@ func (ClusterHandler *AwsClusterHandler) InstallEBSCSIDriverAndPodIdentityAgentI
 	if csiDriverExists && podIdentityAgentExists {
 		cblogger.Infof("EBS CSI driver and pod identity agent already exist in cluster %s", clusterID)
 		return nil
+	}
+
+	// Install the pod identity agent first: the EBS CSI controller gets its credentials through it.
+	var errPodIdentityAgent error
+	if podIdentityAgentExists == false {
+		errPodIdentityAgent = ClusterHandler.installPodIdentityAgent(clusterID)
+		if errPodIdentityAgent != nil {
+			cblogger.Errorf("Failed to install pod identity agent: %v", errPodIdentityAgent)
+		}
 	}
 
 	var errCsiDriver error
@@ -1294,38 +1297,10 @@ func (ClusterHandler *AwsClusterHandler) InstallEBSCSIDriverAndPodIdentityAgentI
 		}
 	}
 
-	var errPodIdentityAgent error
-	if podIdentityAgentExists == false {
-		errPodIdentityAgent = ClusterHandler.installPodIdentityAgent(clusterID)
-		if errPodIdentityAgent != nil {
-			cblogger.Errorf("Failed to install pod identity agent: %v", errPodIdentityAgent)
-		}
-	}
-
 	if errCsiDriver != nil || errPodIdentityAgent != nil {
 		return errors.Join(errCsiDriver, errPodIdentityAgent)
 	}
 
-	return nil
-}
-
-func (ClusterHandler *AwsClusterHandler) installEBSCSIDriver(clusterID string) error {
-	addonName := "aws-ebs-csi-driver" // EBS CSI Driver, don't change
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	input := &eks.CreateAddonInput{
-		ClusterName:      aws.String(clusterID),
-		AddonName:        aws.String(addonName),
-		ResolveConflicts: aws.String("OVERWRITE"),
-	}
-
-	_, err := ClusterHandler.Client.CreateAddonWithContext(ctx, input)
-	if err != nil {
-		cblogger.Errorf("Failed to install EBS CSI Driver: %v", err)
-		return err
-	}
 	return nil
 }
 
@@ -1474,48 +1449,77 @@ func (ClusterHandler *AwsClusterHandler) ChangeNodeGroupScaling(clusterIID irs.I
 	DesiredNodeSize int, MinNodeSize int, MaxNodeSize int) (irs.NodeGroupInfo, error) {
 	cblogger.Infof("Cluster SystemId : [%s] / NodeGroup SystemId : [%s] / DesiredNodeSize : [%d] / MinNodeSize : [%d] / MaxNodeSize : [%d]", clusterIID.SystemId, nodeGroupIID.SystemId, DesiredNodeSize, MinNodeSize, MaxNodeSize)
 
-	// Retrieve cluster info by clusterIID
-	// Retrieve nodeGroup info by nodeGroupIID
-	// 		nodeGroup contains the AutoScaling group name
-
-	// TODO : refactor into a shared helper
-	input := &eks.DescribeNodegroupInput{
-		ClusterName:   aws.String(clusterIID.SystemId),   //required
-		NodegroupName: aws.String(nodeGroupIID.SystemId), // required
+	// Change the scaling through EKS rather than the node group's Auto Scaling group.
+	// EKS syncs a directly changed Auto Scaling group back into its scalingConfig only
+	// after several minutes, so the node group kept reporting the old sizes meanwhile.
+	input := &eks.UpdateNodegroupConfigInput{
+		ClusterName:   aws.String(clusterIID.SystemId),
+		NodegroupName: aws.String(nodeGroupIID.SystemId),
+		ScalingConfig: &eks.NodegroupScalingConfig{
+			DesiredSize: aws.Int64(int64(DesiredNodeSize)),
+			MinSize:     aws.Int64(int64(MinNodeSize)),
+			MaxSize:     aws.Int64(int64(MaxNodeSize)),
+		},
 	}
 
-	result, err := ClusterHandler.Client.DescribeNodegroup(input)
-	cblogger.Debug(result.Nodegroup)
+	result, err := ClusterHandler.Client.UpdateNodegroupConfig(input)
+	if err != nil {
+		// EKS accepts one update at a time, and none while the node group is being created.
+		if aerr, ok := err.(awserr.Error); ok && aerr.Code() == eks.ErrCodeResourceInUseException {
+			err = awserr.New(CUSTOM_ERR_CODE_BAD_REQUEST,
+				fmt.Sprintf("node group %s is being created or updated; retry after it becomes Active (%s)",
+					nodeGroupIID.SystemId, aerr.Message()), nil)
+		}
+		cblogger.Error(err)
+		return irs.NodeGroupInfo{}, err
+	}
+
+	// DescribeNodegroup reports the new sizes only after the update completes (a few seconds).
+	err = ClusterHandler.waitUntilNodegroupUpdateDone(clusterIID.SystemId, nodeGroupIID.SystemId, aws.StringValue(result.Update.Id))
 	if err != nil {
 		cblogger.Error(err)
 		return irs.NodeGroupInfo{}, err
 	}
 
-	nodeGroupName := result.Nodegroup.NodegroupName
-	nodeGroupResources := result.Nodegroup.Resources.AutoScalingGroups
-	for _, autoScalingGroup := range nodeGroupResources {
-		input := &autoscaling.UpdateAutoScalingGroupInput{
-			AutoScalingGroupName: aws.String(*autoScalingGroup.Name),
-
-			MaxSize:         aws.Int64(int64(MaxNodeSize)),
-			MinSize:         aws.Int64(int64(MinNodeSize)),
-			DesiredCapacity: aws.Int64(int64(DesiredNodeSize)),
-		}
-
-		updateResult, err := ClusterHandler.AutoScaling.UpdateAutoScalingGroup(input)
-		if err != nil {
-			cblogger.Error(err)
-			return irs.NodeGroupInfo{}, err
-		}
-		cblogger.Debug(updateResult)
-	}
-
-	nodeGroupInfo, err := ClusterHandler.GetNodeGroup(clusterIID, irs.IID{SystemId: *nodeGroupName})
+	nodeGroupInfo, err := ClusterHandler.GetNodeGroup(clusterIID, nodeGroupIID)
 	if err != nil {
 		cblogger.Error(err)
 		return irs.NodeGroupInfo{}, err
 	}
 	return nodeGroupInfo, nil
+}
+
+// waitUntilNodegroupUpdateDone polls a node group update until it ends, and returns
+// an error if it does not succeed. aws-sdk-go v1 has no waiter for EKS updates.
+func (ClusterHandler *AwsClusterHandler) waitUntilNodegroupUpdateDone(clusterName string, nodegroupName string, updateId string) error {
+	input := &eks.DescribeUpdateInput{
+		Name:          aws.String(clusterName),
+		NodegroupName: aws.String(nodegroupName),
+		UpdateId:      aws.String(updateId),
+	}
+
+	const interval = 3 * time.Second
+	const timeout = 2 * time.Minute
+	for waited := time.Duration(0); waited < timeout; waited += interval {
+		result, err := ClusterHandler.Client.DescribeUpdate(input)
+		if err != nil {
+			return err
+		}
+
+		switch aws.StringValue(result.Update.Status) {
+		case eks.UpdateStatusSuccessful:
+			return nil
+		case eks.UpdateStatusFailed, eks.UpdateStatusCancelled:
+			var reasons []string
+			for _, e := range result.Update.Errors {
+				reasons = append(reasons, fmt.Sprintf("%s: %s", aws.StringValue(e.ErrorCode), aws.StringValue(e.ErrorMessage)))
+			}
+			return fmt.Errorf("node group %s update %s %s: %s", nodegroupName, updateId,
+				aws.StringValue(result.Update.Status), strings.Join(reasons, "; "))
+		}
+		time.Sleep(interval)
+	}
+	return fmt.Errorf("node group %s update %s did not finish within %v", nodegroupName, updateId, timeout)
 }
 
 func (ClusterHandler *AwsClusterHandler) RemoveNodeGroup(clusterIID irs.IID, nodeGroupIID irs.IID) (bool, error) {
@@ -1533,9 +1537,6 @@ func (ClusterHandler *AwsClusterHandler) RemoveNodeGroup(clusterIID irs.IID, nod
 	}
 
 	cblogger.Debug(result)
-
-	// Remove the Launch Template spider created for this NodeGroup once the NodeGroup is gone (async).
-	go ClusterHandler.deleteNodeGroupLaunchTemplateAfterNodeGroupDeleted(clusterIID.SystemId, nodeGroupIID.SystemId)
 
 	return true, nil
 }
@@ -2200,17 +2201,6 @@ func (NodeGroupHandler *AwsClusterHandler) convertNodeGroup(nodeGroupOutput *eks
 	}
 
 	nodeGroupInfo.RootDiskSize = strconv.FormatInt(aws.Int64Value(rootDiskSize), 10)
-
-	// NodeGroups using a Launch Template keep the key pair and disk size in the template.
-	if nodeGroup.LaunchTemplate != nil && (nodeGroupInfo.KeyPairIID.SystemId == "" || rootDiskSize == nil) {
-		ltKeyName, ltRootDiskSize := NodeGroupHandler.nodeGroupLaunchTemplateInfo(nodeGroup.LaunchTemplate)
-		if nodeGroupInfo.KeyPairIID.SystemId == "" && ltKeyName != "" {
-			nodeGroupInfo.KeyPairIID = irs.IID{SystemId: ltKeyName}
-		}
-		if rootDiskSize == nil && ltRootDiskSize > 0 {
-			nodeGroupInfo.RootDiskSize = strconv.FormatInt(ltRootDiskSize, 10)
-		}
-	}
 
 	// TODO : should node list be queried by NodegroupArn?
 	//nodeList := []irs.IID{}
