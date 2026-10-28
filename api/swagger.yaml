@@ -20,6 +20,26 @@ definitions:
             type: array
         type: object
     type: object
+  spider.CredentialValidateResult:
+    properties:
+      ElapsedTime:
+        example: 1.234s
+        type: string
+      Message:
+        example: Successfully authenticated to AWS.
+        type: string
+      ProviderName:
+        example: AWS
+        type: string
+      Valid:
+        example: true
+        type: boolean
+    required:
+    - ElapsedTime
+    - Message
+    - ProviderName
+    - Valid
+    type: object
   spider.DeletedResourceInfoList:
     properties:
       DeletedIIDList:
@@ -601,6 +621,88 @@ definitions:
         - $ref: '#/definitions/spider.VCpuInfo'
         description: CPU details. Count is "-1" when the CSP does not expose it and
           no objective cross-service basis exists to derive it
+    type: object
+  spider.DNSRecordInfo:
+    properties:
+      IId:
+        allOf:
+        - $ref: '#/definitions/spider.IID'
+        description: '{NameId, SystemId}'
+      KeyValueList:
+        items:
+          $ref: '#/definitions/spider.KeyValue'
+        type: array
+      Name:
+        example: www.example.com
+        type: string
+      TTL:
+        example: 300
+        type: integer
+      Type:
+        allOf:
+        - $ref: '#/definitions/spider.DNSRecordType'
+        example: A
+      Value:
+        example:
+        - 203.0.113.10
+        items:
+          type: string
+        type: array
+    required:
+    - IId
+    - Name
+    - Type
+    - Value
+    type: object
+  spider.DNSRecordType:
+    enum:
+    - A
+    - AAAA
+    - CNAME
+    - MX
+    - TXT
+    - NS
+    - SRV
+    - CAA
+    type: string
+    x-enum-varnames:
+    - DNSRecordTypeA
+    - DNSRecordTypeAAAA
+    - DNSRecordTypeCNAME
+    - DNSRecordTypeMX
+    - DNSRecordTypeTXT
+    - DNSRecordTypeNS
+    - DNSRecordTypeSRV
+    - DNSRecordTypeCAA
+  spider.DNSZoneInfo:
+    properties:
+      DomainName:
+        example: example.com
+        type: string
+      IId:
+        allOf:
+        - $ref: '#/definitions/spider.IID'
+        description: '{NameId, SystemId}'
+      KeyValueList:
+        items:
+          $ref: '#/definitions/spider.KeyValue'
+        type: array
+      NameServers:
+        items:
+          type: string
+        type: array
+      RecordInfoList:
+        items:
+          $ref: '#/definitions/spider.DNSRecordInfo'
+        type: array
+      TagList:
+        items:
+          $ref: '#/definitions/spider.KeyValue'
+        type: array
+    required:
+    - DomainName
+    - IId
+    - RecordInfoList
     type: object
   spider.DiskInfo:
     properties:
@@ -1701,6 +1803,8 @@ definitions:
     - rdbms
     - publicip
     - nic
+    - dns
+    - dnsrecord
     type: string
     x-enum-varnames:
     - ALL
@@ -1720,6 +1824,8 @@ definitions:
     - RDBMS
     - PUBLICIP
     - NIC
+    - DNS
+    - DNSRECORD
   spider.RegionInfo:
     properties:
       Region:
@@ -1810,6 +1916,83 @@ definitions:
     - IPProtocol
     - ToPort
     type: object
+  spider.StorageDriverInfo:
+    description: CSP-managed CSI Storage Driver Information for a Kubernetes Cluster
+    properties:
+      CSIDriverName:
+        description: name of the Kubernetes CSIDriver object
+        example: ebs.csi.aws.com
+        type: string
+      CSPDriverName:
+        description: CSP add-on name as-is
+        example: aws-ebs-csi-driver
+        type: string
+      KeyValueList:
+        items:
+          $ref: '#/definitions/spider.KeyValue'
+        type: array
+      Kind:
+        allOf:
+        - $ref: '#/definitions/spider.StorageDriverKind'
+        example: Block
+      ManagementMode:
+        allOf:
+        - $ref: '#/definitions/spider.StorageDriverManagementMode'
+        example: Addon
+      Status:
+        allOf:
+        - $ref: '#/definitions/spider.StorageDriverStatus'
+        example: Enabled
+      Version:
+        example: v1.37.0-eksbuild.1
+        type: string
+    required:
+    - Kind
+    - ManagementMode
+    - Status
+    type: object
+  spider.StorageDriverKind:
+    enum:
+    - Block
+    type: string
+    x-enum-comments:
+      StorageDriverBlock: block storage, ReadWriteOnce (e.g., EBS, PD, Azure Disk)
+    x-enum-descriptions:
+    - block storage, ReadWriteOnce (e.g., EBS, PD, Azure Disk)
+    x-enum-varnames:
+    - StorageDriverBlock
+  spider.StorageDriverManagementMode:
+    enum:
+    - Addon
+    - BuiltIn
+    - NotSupported
+    type: string
+    x-enum-comments:
+      StorageDriverAddon: can be enabled and disabled through the CSP API
+      StorageDriverBuiltIn: always enabled; the CSP API cannot disable it
+      StorageDriverNotSupported: the CSP offers no driver of this kind
+    x-enum-descriptions:
+    - can be enabled and disabled through the CSP API
+    - always enabled; the CSP API cannot disable it
+    - the CSP offers no driver of this kind
+    x-enum-varnames:
+    - StorageDriverAddon
+    - StorageDriverBuiltIn
+    - StorageDriverNotSupported
+  spider.StorageDriverStatus:
+    enum:
+    - Enabled
+    - Disabled
+    - Updating
+    - Failed
+    - Unknown
+    type: string
+    x-enum-varnames:
+    - StorageDriverEnabled
+    - StorageDriverDisabled
+    - StorageDriverUpdating
+    - StorageDriverFailed
+    - StorageDriverUnknown
   spider.StorageSizeRange:
     properties:
       Max:
@@ -2834,6 +3017,19 @@ definitions:
     required:
     - count
     type: object
+  spider.CredentialValidateRequest:
+    properties:
+      KeyValueInfoList:
+        items:
+          $ref: '#/definitions/spider.KeyValue'
+        type: array
+      ProviderName:
+        example: AWS
+        type: string
+    required:
+    - KeyValueInfoList
+    - ProviderName
+    type: object
   spider.DBSpecListResponse:
     properties:
       dbspec:
@@ -2842,6 +3038,131 @@ definitions:
         type: array
     required:
     - dbspec
+    type: object
+  spider.DNSRecordAddRequest:
+    properties:
+      ConnectionName:
+        example: aws-connection
+        type: string
+      ReqInfo:
+        properties:
+          Host:
+            example: www.example.com
+            type: string
+          Name:
+            example: my-a-record
+            type: string
+          TTL:
+            example: 300
+            type: integer
+          Type:
+            example: A
+            type: string
+          Value:
+            example:
+            - 203.0.113.10
+            items:
+              type: string
+            type: array
+        required:
+        - Host
+        - Name
+        - Type
+        - Value
+        type: object
+    required:
+    - ConnectionName
+    - ReqInfo
+    type: object
+  spider.DNSRecordChangeRequest:
+    properties:
+      ConnectionName:
+        example: aws-connection
+        type: string
+      ReqInfo:
+        properties:
+          Host:
+            example: www.example.com
+            type: string
+          TTL:
+            example: 300
+            type: integer
+          Type:
+            example: A
+            type: string
+          Value:
+            example:
+            - 203.0.113.20
+            items:
+              type: string
+            type: array
+        required:
+        - Host
+        - Type
+        - Value
+        type: object
+    required:
+    - ConnectionName
+    - ReqInfo
+    type: object
+  spider.DNSZoneCreateRequest:
+    properties:
+      ConnectionName:
+        example: aws-connection
+        type: string
+      IDTransformMode:
+        description: 'ON: transform CSP ID, OFF: no-transform CSP ID'
+        example: "ON"
+        type: string
+      ReqInfo:
+        properties:
+          DomainName:
+            example: example.com
+            type: string
+          Name:
+            example: my-zone
+            type: string
+          TagList:
+            items:
+              $ref: '#/definitions/spider.KeyValue'
+            type: array
+        required:
+        - DomainName
+        - Name
+        type: object
+    required:
+    - ConnectionName
+    - ReqInfo
+    type: object
+  spider.DNSZoneListResponse:
+    properties:
+      dnszone:
+        items:
+          $ref: '#/definitions/spider.DNSZoneInfo'
+        type: array
+    required:
+    - dnszone
+    type: object
+  spider.DNSZoneRegisterRequest:
+    properties:
+      ConnectionName:
+        example: aws-connection
+        type: string
+      ReqInfo:
+        properties:
+          CSPId:
+            example: /hostedzone/Z1234567890ABC
+            type: string
+          Name:
+            example: my-zone
+            type: string
+        required:
+        - CSPId
+        - Name
+        type: object
+    required:
+    - ConnectionName
+    - ReqInfo
     type: object
   spider.DiskAttachRequest:
     properties:
@@ -2979,6 +3300,9 @@ definitions:
         description: 'support: true, do not support: false'
         type: boolean
       diskHandler:
+        description: 'support: true, do not support: false'
+        type: boolean
+      dnshandler:
         description: 'support: true, do not support: false'
         type: boolean
       emulated_VPC:
@@ -3995,14 +4319,14 @@ definitions:
           NHNAutoOpenDBSecurityGroup:
             default: false
             description: |-
-              NHNAutoOpenDBSecurityGroup (NHN Cloud only): requires PublicAccess=true.
-              When true, CB-Spider auto-creates and attaches a fully-open (0.0.0.0/0)
-              NHN Cloud RDS DB Security Group, and deletes it automatically when the
-              instance is deleted. Ignored by every other CSP. NHN Cloud RDBMS does
-              not use SecurityGroupNames at all (see NHNAutoOpenDBSecurityGroup
-              instead); if this flag is false (default), create and attach a DB
-              Security Group yourself via the NHN Cloud console/API for external
-              SQL access.
+              NHNAutoOpenDBSecurityGroup (NHN Cloud only): when true, CB-Spider
+              auto-creates and attaches a fully-open (0.0.0.0/0) NHN Cloud RDS
+              DB Security Group, and deletes it automatically when the instance
+              is deleted. Works regardless of PublicAccess. Ignored by every
+              other CSP. NHN Cloud RDBMS does not use SecurityGroupNames at all
+              (see NHNAutoOpenDBSecurityGroup instead); if this flag is false
+              (default), create and attach a DB Security Group yourself via the
+              NHN Cloud console/API for external SQL access.
             type: boolean
           Name:
             example: rdbms-01
@@ -4530,6 +4854,37 @@ definitions:
         type: string
     required:
     - message
+    type: object
+  spider.StorageDriverEnableRequest:
+    properties:
+      ConnectionName:
+        example: aws-connection
+        type: string
+      ReqInfo:
+        properties:
+          Kind:
+            description: only Block is supported
+            example: Block
+            type: string
+          Version:
+            description: CSP default version if empty
+            example: v1.37.0-eksbuild.1
+            type: string
+        required:
+        - Kind
+        type: object
+    required:
+    - ConnectionName
+    - ReqInfo
+    type: object
+  spider.StorageDriverListResponse:
+    properties:
+      storagedriver:
+        items:
+          $ref: '#/definitions/spider.StorageDriverInfo'
+        type: array
+    required:
+    - storagedriver
     type: object
   spider.SubnetAddRequest:
     properties:
@@ -6230,6 +6585,131 @@ paths:
       summary: Set Node Group Auto Scaling
       tags:
       - '[Cluster Management]'
+  /cluster/{Name}/storagedriver:
+    get:
+      consumes:
+      - application/json
+      description: List the CSP-managed CSI storage driver (Block) of a Cluster, read
+        through the CSP API.
+      operationId: list-storage-driver
+      parameters:
+      - description: The name of the Cluster
+        in: path
+        name: Name
+        required: true
+        type: string
+      - description: The name of the Connection to use
+        in: query
+        name: ConnectionName
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Storage drivers of the Cluster
+          schema:
+            $ref: '#/definitions/spider.StorageDriverListResponse'
+        "400":
+          description: Bad Request, possibly due to missing parameters
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: List Storage Drivers of a Cluster
+      tags:
+      - '[Cluster Management]'
+    put:
+      consumes:
+      - application/json
+      description: 'Enable a CSP-managed CSI storage driver of a Cluster through the
+        CSP API. Only Kind "Block" is supported. <br> Enabling installs the driver
+        components and wires the permissions the driver needs (e.g., AWS IAM Role
+        and Pod Identity). <br> Idempotent: an already enabled or BuiltIn driver is
+        returned as-is. <br> Some CSPs apply the change asynchronously and return
+        Status "Updating"; check the result with the GET API.'
+      operationId: enable-storage-driver
+      parameters:
+      - description: The name of the Cluster
+        in: path
+        name: Name
+        required: true
+        type: string
+      - description: Request body for enabling a storage driver
+        in: body
+        name: StorageDriverEnableRequest
+        required: true
+        schema:
+          $ref: '#/definitions/spider.StorageDriverEnableRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: The storage driver after the request
+          schema:
+            $ref: '#/definitions/spider.StorageDriverInfo'
+        "400":
+          description: Bad Request, possibly due to an unsupported Kind (only Block
+            is supported)
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Enable a Storage Driver of a Cluster
+      tags:
+      - '[Cluster Management]'
+  /cluster/{Name}/storagedriver/{Kind}:
+    delete:
+      consumes:
+      - application/json
+      description: 'Disable a CSP-managed CSI storage driver of a Cluster through
+        the CSP API. Only Kind "Block" is supported. <br> Only the driver components
+        are removed; volumes, their data and cloud resources are kept. <br> WARNING:
+        existing PVs of the driver can no longer be attached or mounted, so Pods using
+        them fail when rescheduled. <br> BuiltIn drivers cannot be disabled.'
+      operationId: disable-storage-driver
+      parameters:
+      - description: The name of the Cluster
+        in: path
+        name: Name
+        required: true
+        type: string
+      - description: 'The kind of the storage driver: Block'
+        enum:
+        - Block
+        in: path
+        name: Kind
+        required: true
+        type: string
+      - description: Request body for disabling a storage driver
+        in: body
+        name: ConnectionRequest
+        required: true
+        schema:
+          $ref: '#/definitions/spider.ConnectionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Result of the disable operation
+          schema:
+            $ref: '#/definitions/spider.BooleanInfo'
+        "400":
+          description: Bad Request, possibly due to an unsupported Kind (only Block
+            is supported)
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Disable a Storage Driver of a Cluster
+      tags:
+      - '[Cluster Management]'
   /cluster/{Name}/token:
     get:
       consumes:
@@ -6588,6 +7068,48 @@ paths:
       summary: Count Disks by Connection
       tags:
       - '[Disk Management]'
+  /countdnszone:
+    get:
+      description: Get the total number of DNS Zones across all connections.
+      operationId: count-all-dnszone
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Total count of DNS Zones
+          schema:
+            $ref: '#/definitions/spider.CountResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Count All DNS Zones
+      tags:
+      - '[DNS Management]'
+  /countdnszone/{ConnectionName}:
+    get:
+      description: Get the total number of DNS Zones for a specific connection.
+      operationId: count-dnszone-by-connection
+      parameters:
+      - description: The name of the Connection
+        in: path
+        name: ConnectionName
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Total count of DNS Zones for the connection
+          schema:
+            $ref: '#/definitions/spider.CountResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Count DNS Zones by Connection
+      tags:
+      - '[DNS Management]'
   /countkeypair:
     get:
       description: Get the total number of KeyPairs across all connections.
@@ -7160,6 +7682,35 @@ paths:
           schema:
             $ref: '#/definitions/spider.SimpleMsg'
       summary: Get Credential
+      tags:
+      - '[Cloud Info Management] Credential Info'
+  /credential/validate:
+    post:
+      consumes:
+      - application/json
+      description: Check whether a Credential can connect to the cloud before registering
+        it. The Credential is not stored.
+      operationId: validate-credential
+      parameters:
+      - description: Request body for validating a Credential
+        in: body
+        name: CredentialValidateRequest
+        required: true
+        schema:
+          $ref: '#/definitions/spider.CredentialValidateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 'Validation result (Valid: true/false)'
+          schema:
+            $ref: '#/definitions/spider.CredentialValidateResult'
+        "400":
+          description: Bad Request, possibly due to invalid JSON structure or missing
+            fields
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Validate Credential
       tags:
       - '[Cloud Info Management] Credential Info'
   /cspcluster/{Id}:
@@ -8093,6 +8644,299 @@ paths:
       summary: Increase Disk Size
       tags:
       - '[Disk Management]'
+  /dnszone:
+    get:
+      consumes:
+      - application/json
+      description: Retrieve a list of Public DNS Zones associated with a specific
+        connection.
+      operationId: list-dnszone
+      parameters:
+      - description: The name of the Connection to list DNS Zones for
+        in: query
+        name: ConnectionName
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of DNS Zones
+          schema:
+            $ref: '#/definitions/spider.DNSZoneListResponse'
+        "400":
+          description: Bad Request, possibly due to invalid query parameter
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "404":
+          description: Resource Not Found
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: List DNS Zones
+      tags:
+      - '[DNS Management]'
+    post:
+      consumes:
+      - application/json
+      description: Create a new Public Authoritative DNS Zone(Hosted Zone) for the
+        given domain name.
+      operationId: create-dnszone
+      parameters:
+      - description: Request body for creating a DNS Zone
+        in: body
+        name: DNSZoneCreateRequest
+        required: true
+        schema:
+          $ref: '#/definitions/spider.DNSZoneCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Details of the created DNS Zone
+          schema:
+            $ref: '#/definitions/spider.DNSZoneInfo'
+        "400":
+          description: Bad Request, possibly due to invalid JSON structure or missing
+            fields
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "404":
+          description: Resource Not Found
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Create DNS Zone
+      tags:
+      - '[DNS Management]'
+  /dnszone/{DNSZoneName}/record:
+    post:
+      consumes:
+      - application/json
+      description: 'Add a new record(ex: A, CNAME) to an existing Public DNS Zone.'
+      operationId: add-dnsrecord
+      parameters:
+      - description: The name of the DNS Zone to add the record to
+        in: path
+        name: DNSZoneName
+        required: true
+        type: string
+      - description: Request body for adding a DNS Record
+        in: body
+        name: DNSRecordAddRequest
+        required: true
+        schema:
+          $ref: '#/definitions/spider.DNSRecordAddRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Details of the DNS Zone including the added record
+          schema:
+            $ref: '#/definitions/spider.DNSZoneInfo'
+        "400":
+          description: Bad Request, possibly due to invalid JSON structure or missing
+            fields
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "404":
+          description: Resource Not Found
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Add DNS Record
+      tags:
+      - '[DNS Management]'
+  /dnszone/{DNSZoneName}/record/{RecordName}:
+    delete:
+      consumes:
+      - application/json
+      description: Remove an existing record from a Public DNS Zone.
+      operationId: remove-dnsrecord
+      parameters:
+      - description: The name of the DNS Zone
+        in: path
+        name: DNSZoneName
+        required: true
+        type: string
+      - description: The CB-Spider name of the DNS Record to remove
+        in: path
+        name: RecordName
+        required: true
+        type: string
+      - description: 'Force delete the record. ex) true or false(default: false)'
+        in: query
+        name: force
+        type: string
+      - description: Request body for removing a DNS Record
+        in: body
+        name: ConnectionRequest
+        required: true
+        schema:
+          $ref: '#/definitions/spider.ConnectionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Result of the remove operation
+          schema:
+            $ref: '#/definitions/spider.BooleanInfo'
+        "400":
+          description: Bad Request, possibly due to invalid JSON structure or missing
+            fields
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "404":
+          description: Resource Not Found
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Remove DNS Record
+      tags:
+      - '[DNS Management]'
+    put:
+      consumes:
+      - application/json
+      description: Change the value/TTL of an existing record(by Name) in a Public
+        DNS Zone.
+      operationId: change-dnsrecord
+      parameters:
+      - description: The name of the DNS Zone
+        in: path
+        name: DNSZoneName
+        required: true
+        type: string
+      - description: The CB-Spider name of the DNS Record to change
+        in: path
+        name: RecordName
+        required: true
+        type: string
+      - description: Request body for changing a DNS Record
+        in: body
+        name: DNSRecordChangeRequest
+        required: true
+        schema:
+          $ref: '#/definitions/spider.DNSRecordChangeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Details of the DNS Zone including the changed record
+          schema:
+            $ref: '#/definitions/spider.DNSZoneInfo'
+        "400":
+          description: Bad Request, possibly due to invalid JSON structure or missing
+            fields
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "404":
+          description: Resource Not Found
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Change DNS Record
+      tags:
+      - '[DNS Management]'
+  /dnszone/{Name}:
+    delete:
+      consumes:
+      - application/json
+      description: Delete a Public DNS Zone, including every record CB-Spider or the
+        CSP has in it.
+      operationId: delete-dnszone
+      parameters:
+      - description: The name of the DNS Zone to delete
+        in: path
+        name: Name
+        required: true
+        type: string
+      - description: 'Force delete the DNS Zone. ex) true or false(default: false)'
+        in: query
+        name: force
+        type: string
+      - description: Request body for deleting a DNS Zone
+        in: body
+        name: ConnectionRequest
+        required: true
+        schema:
+          $ref: '#/definitions/spider.ConnectionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Result of the delete operation
+          schema:
+            $ref: '#/definitions/spider.BooleanInfo'
+        "400":
+          description: Bad Request, possibly due to invalid JSON structure or missing
+            fields
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "404":
+          description: Resource Not Found
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Delete DNS Zone
+      tags:
+      - '[DNS Management]'
+    get:
+      consumes:
+      - application/json
+      description: Retrieve a specific Public DNS Zone, including the records CB-Spider
+        manages in it.
+      operationId: get-dnszone
+      parameters:
+      - description: The name of the Connection
+        in: query
+        name: ConnectionName
+        required: true
+        type: string
+      - description: The name of the DNS Zone to retrieve
+        in: path
+        name: Name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Details of the requested DNS Zone
+          schema:
+            $ref: '#/definitions/spider.DNSZoneInfo'
+        "400":
+          description: Bad Request, possibly due to invalid parameters
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "404":
+          description: Resource Not Found
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Get DNS Zone
+      tags:
+      - '[DNS Management]'
   /driver:
     get:
       description: Retrieve a list of registered Cloud Drivers.
@@ -11048,6 +11892,85 @@ paths:
       summary: Unregister Disk
       tags:
       - '[Disk Management]'
+  /regdnszone:
+    post:
+      consumes:
+      - application/json
+      description: Register an existing Public DNS Zone with the specified name and
+        CSP ID.
+      operationId: register-dnszone
+      parameters:
+      - description: Request body for registering a DNS Zone
+        in: body
+        name: DNSZoneRegisterRequest
+        required: true
+        schema:
+          $ref: '#/definitions/spider.DNSZoneRegisterRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Details of the registered DNS Zone
+          schema:
+            $ref: '#/definitions/spider.DNSZoneInfo'
+        "400":
+          description: Bad Request, possibly due to invalid JSON structure or missing
+            fields
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "404":
+          description: Resource Not Found
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Register DNS Zone
+      tags:
+      - '[DNS Management]'
+  /regdnszone/{Name}:
+    delete:
+      consumes:
+      - application/json
+      description: Unregister a DNS Zone with the specified name, without deleting
+        it from the CSP.
+      operationId: unregister-dnszone
+      parameters:
+      - description: Request body for unregistering a DNS Zone
+        in: body
+        name: ConnectionRequest
+        required: true
+        schema:
+          $ref: '#/definitions/spider.ConnectionRequest'
+      - description: The name of the DNS Zone to unregister
+        in: path
+        name: Name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Result of the unregister operation
+          schema:
+            $ref: '#/definitions/spider.BooleanInfo'
+        "400":
+          description: Bad Request, possibly due to invalid JSON structure or missing
+            fields
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "404":
+          description: Resource Not Found
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/spider.SimpleMsg'
+      summary: Unregister DNS Zone
+      tags:
+      - '[DNS Management]'
   /region:
     get:
       description: Retrieve a list of registered Regions.

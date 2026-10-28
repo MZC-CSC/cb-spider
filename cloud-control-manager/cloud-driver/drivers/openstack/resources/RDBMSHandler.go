@@ -416,11 +416,12 @@ func (handler *OpenStackRDBMSHandler) CreateRDBMS(rdbmsReqInfo irs.RDBMSInfo) (i
 			fmt.Errorf("RDBMS instance %s did not reach ACTIVE: %w", instanceID, waitErr))
 	}
 
-	// Enable root and create the requested DB user
+	// Enable root (when needed) and create the requested DB user
 	effectiveUser, rootPwd, userErr := handler.enableAndConfigureUser(
 		instanceID,
 		rdbmsReqInfo.MasterUserName,
 		rdbmsReqInfo.MasterUserPassword,
+		rdbmsReqInfo.PublicAccess,
 	)
 	if userErr != nil {
 		cblogger.Error(userErr)
@@ -450,16 +451,24 @@ func (handler *OpenStackRDBMSHandler) CreateRDBMS(rdbmsReqInfo irs.RDBMSInfo) (i
 	// Grant global admin privileges to the non-root master user so it can
 	// create/drop databases (Trove's user API only grants db-specific access).
 	if effectiveUser != "root" {
-		// Determine default port based on engine type
-		engineType := strings.ToLower(rdbmsReqInfo.DBEngine)
-		defaultPort := "3306"
-		if strings.Contains(engineType, "postgresql") {
-			defaultPort = "5432"
-		}
-		if grantErr := grantAdminPrivileges(rdbmsInfo.Endpoint, defaultPort, rootPwd, effectiveUser); grantErr != nil {
-			cblogger.Warnf("CreateRDBMS: could not grant admin privileges to '%s': %v", effectiveUser, grantErr)
+		if !rdbmsInfo.PublicAccess {
+			// A Private Mode (PublicAccess=false) instance has no route from wherever
+			// CB-Spider runs, so grantAdminPrivileges' direct SQL connection is known to
+			// fail up front -- skip it instead of blocking CreateRDBMS for up to
+			// OPENSTACK_GRANT_ADMIN_TIMEOUT waiting on a connection that can't succeed.
+			cblogger.Warnf("CreateRDBMS: instance is Private Mode (PublicAccess=false); skipping automatic GRANT of admin privileges to '%s' -- run it manually (GRANT ALL PRIVILEGES ON *.* TO '%s'@'%%' WITH GRANT OPTION; FLUSH PRIVILEGES;) from inside the instance's network", effectiveUser, effectiveUser)
 		} else {
-			cblogger.Infof("CreateRDBMS: granted ALL PRIVILEGES ON *.* to '%s'", effectiveUser)
+			// Determine default port based on engine type
+			engineType := strings.ToLower(rdbmsReqInfo.DBEngine)
+			defaultPort := "3306"
+			if strings.Contains(engineType, "postgresql") {
+				defaultPort = "5432"
+			}
+			if grantErr := grantAdminPrivileges(rdbmsInfo.Endpoint, defaultPort, rootPwd, effectiveUser); grantErr != nil {
+				cblogger.Warnf("CreateRDBMS: could not grant admin privileges to '%s': %v", effectiveUser, grantErr)
+			} else {
+				cblogger.Infof("CreateRDBMS: granted ALL PRIVILEGES ON *.* to '%s'", effectiveUser)
+			}
 		}
 	}
 
@@ -670,15 +679,19 @@ func (handler *OpenStackRDBMSHandler) waitForTroveActive(instanceID string, time
 // MasterUserName is given, creates that user with the supplied password.
 // Returns (effectiveUserName, rootPassword, error). rootPassword is non-empty
 // so callers can use it to grant global privileges via a direct MySQL connection.
-func (handler *OpenStackRDBMSHandler) enableAndConfigureUser(instanceID, masterUserName, masterUserPassword string) (string, string, error) {
-	// Always enable root so callers can log in via root if needed.
-	rootResult := instances.EnableRootUser(context.TODO(), handler.DBClient, instanceID)
-	rootUser, err := rootResult.Extract()
-	if err != nil {
-		return "", "", fmt.Errorf("EnableRootUser for instance %s failed: %w", instanceID, err)
+func (handler *OpenStackRDBMSHandler) enableAndConfigureUser(instanceID, masterUserName, masterUserPassword string, publicAccess bool) (string, string, error) {
+	var rootPassword string
+	// In Private Mode (!publicAccess), grantAdminPrivileges is skipped, so EnableRootUser
+	// is only needed when publicAccess is true or when the master user itself is root.
+	if publicAccess || masterUserName == "" || strings.EqualFold(masterUserName, "root") {
+		rootResult := instances.EnableRootUser(context.TODO(), handler.DBClient, instanceID)
+		rootUser, err := rootResult.Extract()
+		if err != nil {
+			return "", "", fmt.Errorf("EnableRootUser for instance %s failed: %w", instanceID, err)
+		}
+		rootPassword = rootUser.Password
+		cblogger.Infof("EnableRootUser succeeded for instance %s", instanceID)
 	}
-	rootPassword := rootUser.Password
-	cblogger.Infof("EnableRootUser succeeded for instance %s", instanceID)
 
 	// Create the requested non-root user with the supplied password.
 	if masterUserName != "" && strings.ToLower(masterUserName) != "root" && masterUserPassword != "" {
@@ -969,6 +982,17 @@ func (handler *OpenStackRDBMSHandler) CreateDatabaseWithOptions(rdbmsSystemId, d
 	opts := databases.BatchCreateOpts{databases.CreateOpts{Name: dbName, CharSet: charset, Collate: collation}}
 	if err := databases.Create(ctx, handler.DBClient, rdbmsSystemId, opts).ExtractErr(); err != nil {
 		return fmt.Errorf("OpenStack CreateDatabase: %w", err)
+	}
+	// Grant non-root users on the instance access to the newly created database via Trove API.
+	if pages, err := users.List(handler.DBClient, rdbmsSystemId).AllPages(ctx); err == nil {
+		if userList, err := users.ExtractUsers(pages); err == nil {
+			body := map[string]interface{}{"databases": []map[string]string{{"name": dbName}}}
+			for _, u := range userList {
+				if u.Name != "" && !strings.EqualFold(u.Name, "root") {
+					_, _ = handler.DBClient.Put(ctx, handler.DBClient.ServiceURL("instances", rdbmsSystemId, "users", u.Name, "databases"), body, nil, &gophercloud.RequestOpts{OkCodes: []int{200, 202, 204}})
+				}
+			}
+		}
 	}
 	return nil
 }

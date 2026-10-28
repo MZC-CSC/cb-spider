@@ -83,6 +83,8 @@ func (NcpVpcDriver) GetDriverCapability() idrv.DriverCapabilityInfo {
 	drvCapabilityInfo.PublicIPHandler = false
 	drvCapabilityInfo.NICHandler = false
 
+	drvCapabilityInfo.DNSHandler = true
+
 	return drvCapabilityInfo
 }
 
@@ -187,6 +189,16 @@ func getClassicServerClient(connectionInfo idrv.ConnectionInfo) (*server.APIClie
 	}
 	client := server.NewAPIClient(server.NewConfiguration(&apiKeys))
 	return client, nil
+}
+
+// ValidateCredential checks the API key with the region-independent GetRegionList API.
+func (driver *NcpVpcDriver) ValidateCredential(credentialInfo idrv.CredentialInfo) error {
+	vmClient, err := getVmClient(idrv.ConnectionInfo{CredentialInfo: credentialInfo})
+	if err != nil {
+		return err
+	}
+	_, err = vmClient.V2Api.GetRegionList(&vserver.GetRegionListRequest{})
+	return err
 }
 
 func (driver *NcpVpcDriver) ConnectCloud(connectionInfo idrv.ConnectionInfo) (icon.CloudConnection, error) {

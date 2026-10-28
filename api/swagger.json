@@ -1751,6 +1751,174 @@
                 }
             }
         },
+        "/cluster/{Name}/storagedriver": {
+            "get": {
+                "description": "List the CSP-managed CSI storage driver (Block) of a Cluster, read through the CSP API.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "[Cluster Management]"
+                ],
+                "summary": "List Storage Drivers of a Cluster",
+                "operationId": "list-storage-driver",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "The name of the Cluster",
+                        "name": "Name",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "The name of the Connection to use",
+                        "name": "ConnectionName",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Storage drivers of the Cluster",
+                        "schema": {
+                            "$ref": "#/definitions/spider.StorageDriverListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request, possibly due to missing parameters",
+                        "schema": {
+                            "$ref": "#/definitions/spider.SimpleMsg"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/spider.SimpleMsg"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "Enable a CSP-managed CSI storage driver of a Cluster through the CSP API. Only Kind \"Block\" is supported. \u003cbr\u003e Enabling installs the driver components and wires the permissions the driver needs (e.g., AWS IAM Role and Pod Identity). \u003cbr\u003e Idempotent: an already enabled or BuiltIn driver is returned as-is. \u003cbr\u003e Some CSPs apply the change asynchronously and return Status \"Updating\"; check the result with the GET API.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "[Cluster Management]"
+                ],
+                "summary": "Enable a Storage Driver of a Cluster",
+                "operationId": "enable-storage-driver",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "The name of the Cluster",
+                        "name": "Name",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Request body for enabling a storage driver",
+                        "name": "StorageDriverEnableRequest",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/spider.StorageDriverEnableRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The storage driver after the request",
+                        "schema": {
+                            "$ref": "#/definitions/spider.StorageDriverInfo"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request, possibly due to an unsupported Kind (only Block is supported)",
+                        "schema": {
+                            "$ref": "#/definitions/spider.SimpleMsg"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/spider.SimpleMsg"
+                        }
+                    }
+                }
+            }
+        },
+        "/cluster/{Name}/storagedriver/{Kind}": {
+            "delete": {
+                "description": "Disable a CSP-managed CSI storage driver of a Cluster through the CSP API. Only Kind \"Block\" is supported. \u003cbr\u003e Only the driver components are removed; volumes, their data and cloud resources are kept. \u003cbr\u003e WARNING: existing PVs of the driver can no longer be attached or mounted, so Pods using them fail when rescheduled. \u003cbr\u003e BuiltIn drivers cannot be disabled.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "[Cluster Management]"
+                ],
+                "summary": "Disable a Storage Driver of a Cluster",
+                "operationId": "disable-storage-driver",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "The name of the Cluster",
+                        "name": "Name",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "enum": [
+                            "Block"
+                        ],
+                        "type": "string",
+                        "description": "The kind of the storage driver: Block",
+                        "name": "Kind",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Request body for disabling a storage driver",
+                        "name": "ConnectionRequest",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/spider.ConnectionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Result of the disable operation",
+                        "schema": {
+                            "$ref": "#/definitions/spider.BooleanInfo"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request, possibly due to an unsupported Kind (only Block is supported)",
+                        "schema": {
+                            "$ref": "#/definitions/spider.SimpleMsg"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/spider.SimpleMsg"
+                        }
+                    }
+                }
+            }
+        },
         "/cluster/{Name}/token": {
             "get": {
                 "description": "Get a temporary token for accessing EKS cluster (for kubectl exec auth)",
@@ -2266,6 +2434,69 @@
                 "responses": {
                     "200": {
                         "description": "Total count of Disks for the connection",
+                        "schema": {
+                            "$ref": "#/definitions/spider.CountResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/spider.SimpleMsg"
+                        }
+                    }
+                }
+            }
+        },
+        "/countdnszone": {
+            "get": {
+                "description": "Get the total number of DNS Zones across all connections.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "[DNS Management]"
+                ],
+                "summary": "Count All DNS Zones",
+                "operationId": "count-all-dnszone",
+                "responses": {
+                    "200": {
+                        "description": "Total count of DNS Zones",
+                        "schema": {
+                            "$ref": "#/definitions/spider.CountResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/spider.SimpleMsg"
+                        }
+                    }
+                }
+            }
+        },
+        "/countdnszone/{ConnectionName}": {
+            "get": {
+                "description": "Get the total number of DNS Zones for a specific connection.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "[DNS Management]"
+                ],
+                "summary": "Count DNS Zones by Connection",
+                "operationId": "count-dnszone-by-connection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "The name of the Connection",
+                        "name": "ConnectionName",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Total count of DNS Zones for the connection",
                         "schema": {
                             "$ref": "#/definitions/spider.CountResponse"
                         }
@@ -3045,6 +3276,47 @@
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/spider.SimpleMsg"
+                        }
+                    }
+                }
+            }
+        },
+        "/credential/validate": {
+            "post": {
+                "description": "Check whether a Credential can connect to the cloud before registering it. The Credential is not stored.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "[Cloud Info Management] Credential Info"
+                ],
+                "summary": "Validate Credential",
+                "operationId": "validate-credential",
+                "parameters": [
+                    {
+                        "description": "Request body for validating a Credential",
+                        "name": "CredentialValidateRequest",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/spider.CredentialValidateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Validation result (Valid: true/false)",
+                        "schema": {
+                            "$ref": "#/definitions/spider.CredentialValidateResult"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request, possibly due to invalid JSON structure or missing fields",
                         "schema": {
                             "$ref": "#/definitions/spider.SimpleMsg"
                         }
@@ -4462,6 +4734,428 @@
                 "responses": {
                     "200": {
                         "description": "Result of the size increase operation",
+                        "schema": {
+                            "$ref": "#/definitions/spider.BooleanInfo"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request, possibly due to invalid JSON structure or missing fields",
+                        "schema": {
+                            "$ref": "#/definitions/spider.SimpleMsg"
+                        }
+                    },
+                    "404": {
+                        "description": "Resource Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/spider.SimpleMsg"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/spider.SimpleMsg"
+                        }
+                    }
+                }
+            }
+        },
+        "/dnszone": {
+            "get": {
+                "description": "Retrieve a list of Public DNS Zones associated with a specific connection.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "[DNS Management]"
+                ],
+                "summary": "List DNS Zones",
+                "operationId": "list-dnszone",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "The name of the Connection to list DNS Zones for",
+                        "name": "ConnectionName",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "List of DNS Zones",
+                        "schema": {
+                            "$ref": "#/definitions/spider.DNSZoneListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request, possibly due to invalid query parameter",
+                        "schema": {
+                            "$ref": "#/definitions/spider.SimpleMsg"
+                        }
+                    },
+                    "404": {
+                        "description": "Resource Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/spider.SimpleMsg"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/spider.SimpleMsg"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Create a new Public Authoritative DNS Zone(Hosted Zone) for the given domain name.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "[DNS Management]"
+                ],
+                "summary": "Create DNS Zone",
+                "operationId": "create-dnszone",
+                "parameters": [
+                    {
+                        "description": "Request body for creating a DNS Zone",
+                        "name": "DNSZoneCreateRequest",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/spider.DNSZoneCreateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Details of the created DNS Zone",
+                        "schema": {
+                            "$ref": "#/definitions/spider.DNSZoneInfo"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request, possibly due to invalid JSON structure or missing fields",
+                        "schema": {
+                            "$ref": "#/definitions/spider.SimpleMsg"
+                        }
+                    },
+                    "404": {
+                        "description": "Resource Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/spider.SimpleMsg"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/spider.SimpleMsg"
+                        }
+                    }
+                }
+            }
+        },
+        "/dnszone/{DNSZoneName}/record": {
+            "post": {
+                "description": "Add a new record(ex: A, CNAME) to an existing Public DNS Zone.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "[DNS Management]"
+                ],
+                "summary": "Add DNS Record",
+                "operationId": "add-dnsrecord",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "The name of the DNS Zone to add the record to",
+                        "name": "DNSZoneName",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Request body for adding a DNS Record",
+                        "name": "DNSRecordAddRequest",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/spider.DNSRecordAddRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Details of the DNS Zone including the added record",
+                        "schema": {
+                            "$ref": "#/definitions/spider.DNSZoneInfo"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request, possibly due to invalid JSON structure or missing fields",
+                        "schema": {
+                            "$ref": "#/definitions/spider.SimpleMsg"
+                        }
+                    },
+                    "404": {
+                        "description": "Resource Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/spider.SimpleMsg"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/spider.SimpleMsg"
+                        }
+                    }
+                }
+            }
+        },
+        "/dnszone/{DNSZoneName}/record/{RecordName}": {
+            "put": {
+                "description": "Change the value/TTL of an existing record(by Name) in a Public DNS Zone.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "[DNS Management]"
+                ],
+                "summary": "Change DNS Record",
+                "operationId": "change-dnsrecord",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "The name of the DNS Zone",
+                        "name": "DNSZoneName",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "The CB-Spider name of the DNS Record to change",
+                        "name": "RecordName",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Request body for changing a DNS Record",
+                        "name": "DNSRecordChangeRequest",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/spider.DNSRecordChangeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Details of the DNS Zone including the changed record",
+                        "schema": {
+                            "$ref": "#/definitions/spider.DNSZoneInfo"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request, possibly due to invalid JSON structure or missing fields",
+                        "schema": {
+                            "$ref": "#/definitions/spider.SimpleMsg"
+                        }
+                    },
+                    "404": {
+                        "description": "Resource Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/spider.SimpleMsg"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/spider.SimpleMsg"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "Remove an existing record from a Public DNS Zone.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "[DNS Management]"
+                ],
+                "summary": "Remove DNS Record",
+                "operationId": "remove-dnsrecord",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "The name of the DNS Zone",
+                        "name": "DNSZoneName",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "The CB-Spider name of the DNS Record to remove",
+                        "name": "RecordName",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Force delete the record. ex) true or false(default: false)",
+                        "name": "force",
+                        "in": "query"
+                    },
+                    {
+                        "description": "Request body for removing a DNS Record",
+                        "name": "ConnectionRequest",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/spider.ConnectionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Result of the remove operation",
+                        "schema": {
+                            "$ref": "#/definitions/spider.BooleanInfo"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request, possibly due to invalid JSON structure or missing fields",
+                        "schema": {
+                            "$ref": "#/definitions/spider.SimpleMsg"
+                        }
+                    },
+                    "404": {
+                        "description": "Resource Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/spider.SimpleMsg"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/spider.SimpleMsg"
+                        }
+                    }
+                }
+            }
+        },
+        "/dnszone/{Name}": {
+            "get": {
+                "description": "Retrieve a specific Public DNS Zone, including the records CB-Spider manages in it.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "[DNS Management]"
+                ],
+                "summary": "Get DNS Zone",
+                "operationId": "get-dnszone",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "The name of the Connection",
+                        "name": "ConnectionName",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "The name of the DNS Zone to retrieve",
+                        "name": "Name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Details of the requested DNS Zone",
+                        "schema": {
+                            "$ref": "#/definitions/spider.DNSZoneInfo"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request, possibly due to invalid parameters",
+                        "schema": {
+                            "$ref": "#/definitions/spider.SimpleMsg"
+                        }
+                    },
+                    "404": {
+                        "description": "Resource Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/spider.SimpleMsg"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/spider.SimpleMsg"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "Delete a Public DNS Zone, including every record CB-Spider or the CSP has in it.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "[DNS Management]"
+                ],
+                "summary": "Delete DNS Zone",
+                "operationId": "delete-dnszone",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "The name of the DNS Zone to delete",
+                        "name": "Name",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Force delete the DNS Zone. ex) true or false(default: false)",
+                        "name": "force",
+                        "in": "query"
+                    },
+                    {
+                        "description": "Request body for deleting a DNS Zone",
+                        "name": "ConnectionRequest",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/spider.ConnectionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Result of the delete operation",
                         "schema": {
                             "$ref": "#/definitions/spider.BooleanInfo"
                         }
@@ -8762,6 +9456,119 @@
                     {
                         "type": "string",
                         "description": "The name of the Disk to unregister",
+                        "name": "Name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Result of the unregister operation",
+                        "schema": {
+                            "$ref": "#/definitions/spider.BooleanInfo"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request, possibly due to invalid JSON structure or missing fields",
+                        "schema": {
+                            "$ref": "#/definitions/spider.SimpleMsg"
+                        }
+                    },
+                    "404": {
+                        "description": "Resource Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/spider.SimpleMsg"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/spider.SimpleMsg"
+                        }
+                    }
+                }
+            }
+        },
+        "/regdnszone": {
+            "post": {
+                "description": "Register an existing Public DNS Zone with the specified name and CSP ID.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "[DNS Management]"
+                ],
+                "summary": "Register DNS Zone",
+                "operationId": "register-dnszone",
+                "parameters": [
+                    {
+                        "description": "Request body for registering a DNS Zone",
+                        "name": "DNSZoneRegisterRequest",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/spider.DNSZoneRegisterRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Details of the registered DNS Zone",
+                        "schema": {
+                            "$ref": "#/definitions/spider.DNSZoneInfo"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request, possibly due to invalid JSON structure or missing fields",
+                        "schema": {
+                            "$ref": "#/definitions/spider.SimpleMsg"
+                        }
+                    },
+                    "404": {
+                        "description": "Resource Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/spider.SimpleMsg"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/spider.SimpleMsg"
+                        }
+                    }
+                }
+            }
+        },
+        "/regdnszone/{Name}": {
+            "delete": {
+                "description": "Unregister a DNS Zone with the specified name, without deleting it from the CSP.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "[DNS Management]"
+                ],
+                "summary": "Unregister DNS Zone",
+                "operationId": "unregister-dnszone",
+                "parameters": [
+                    {
+                        "description": "Request body for unregistering a DNS Zone",
+                        "name": "ConnectionRequest",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/spider.ConnectionRequest"
+                        }
+                    },
+                    {
+                        "type": "string",
+                        "description": "The name of the DNS Zone to unregister",
                         "name": "Name",
                         "in": "path",
                         "required": true
@@ -13947,6 +14754,33 @@
                 }
             }
         },
+        "spider.CredentialValidateResult": {
+            "type": "object",
+            "required": [
+                "ElapsedTime",
+                "Message",
+                "ProviderName",
+                "Valid"
+            ],
+            "properties": {
+                "ElapsedTime": {
+                    "type": "string",
+                    "example": "1.234s"
+                },
+                "Message": {
+                    "type": "string",
+                    "example": "Successfully authenticated to AWS."
+                },
+                "ProviderName": {
+                    "type": "string",
+                    "example": "AWS"
+                },
+                "Valid": {
+                    "type": "boolean",
+                    "example": true
+                }
+            }
+        },
         "spider.DeletedResourceInfoList": {
             "type": "object",
             "required": [
@@ -14683,6 +15517,125 @@
                             "$ref": "#/definitions/spider.VCpuInfo"
                         }
                     ]
+                }
+            }
+        },
+        "spider.DNSRecordInfo": {
+            "type": "object",
+            "required": [
+                "IId",
+                "Name",
+                "Type",
+                "Value"
+            ],
+            "properties": {
+                "IId": {
+                    "description": "{NameId, SystemId}",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/spider.IID"
+                        }
+                    ]
+                },
+                "KeyValueList": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/spider.KeyValue"
+                    }
+                },
+                "Name": {
+                    "type": "string",
+                    "example": "www.example.com"
+                },
+                "TTL": {
+                    "type": "integer",
+                    "example": 300
+                },
+                "Type": {
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/spider.DNSRecordType"
+                        }
+                    ],
+                    "example": "A"
+                },
+                "Value": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "203.0.113.10"
+                    ]
+                }
+            }
+        },
+        "spider.DNSRecordType": {
+            "type": "string",
+            "enum": [
+                "A",
+                "AAAA",
+                "CNAME",
+                "MX",
+                "TXT",
+                "NS",
+                "SRV",
+                "CAA"
+            ],
+            "x-enum-varnames": [
+                "DNSRecordTypeA",
+                "DNSRecordTypeAAAA",
+                "DNSRecordTypeCNAME",
+                "DNSRecordTypeMX",
+                "DNSRecordTypeTXT",
+                "DNSRecordTypeNS",
+                "DNSRecordTypeSRV",
+                "DNSRecordTypeCAA"
+            ]
+        },
+        "spider.DNSZoneInfo": {
+            "type": "object",
+            "required": [
+                "DomainName",
+                "IId",
+                "RecordInfoList"
+            ],
+            "properties": {
+                "DomainName": {
+                    "type": "string",
+                    "example": "example.com"
+                },
+                "IId": {
+                    "description": "{NameId, SystemId}",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/spider.IID"
+                        }
+                    ]
+                },
+                "KeyValueList": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/spider.KeyValue"
+                    }
+                },
+                "NameServers": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "RecordInfoList": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/spider.DNSRecordInfo"
+                    }
+                },
+                "TagList": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/spider.KeyValue"
+                    }
                 }
             }
         },
@@ -16190,7 +17143,9 @@
                 "filesystem",
                 "rdbms",
                 "publicip",
-                "nic"
+                "nic",
+                "dns",
+                "dnsrecord"
             ],
             "x-enum-varnames": [
                 "ALL",
@@ -16209,7 +17164,9 @@
                 "FILESYSTEM",
                 "RDBMS",
                 "PUBLICIP",
-                "NIC"
+                "NIC",
+                "DNS",
+                "DNSRECORD"
             ]
         },
         "spider.RegionInfo": {
@@ -16341,6 +17298,116 @@
                     "example": "22"
                 }
             }
+        },
+        "spider.StorageDriverInfo": {
+            "description": "CSP-managed CSI Storage Driver Information for a Kubernetes Cluster",
+            "type": "object",
+            "required": [
+                "Kind",
+                "ManagementMode",
+                "Status"
+            ],
+            "properties": {
+                "CSIDriverName": {
+                    "description": "name of the Kubernetes CSIDriver object",
+                    "type": "string",
+                    "example": "ebs.csi.aws.com"
+                },
+                "CSPDriverName": {
+                    "description": "CSP add-on name as-is",
+                    "type": "string",
+                    "example": "aws-ebs-csi-driver"
+                },
+                "KeyValueList": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/spider.KeyValue"
+                    }
+                },
+                "Kind": {
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/spider.StorageDriverKind"
+                        }
+                    ],
+                    "example": "Block"
+                },
+                "ManagementMode": {
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/spider.StorageDriverManagementMode"
+                        }
+                    ],
+                    "example": "Addon"
+                },
+                "Status": {
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/spider.StorageDriverStatus"
+                        }
+                    ],
+                    "example": "Enabled"
+                },
+                "Version": {
+                    "type": "string",
+                    "example": "v1.37.0-eksbuild.1"
+                }
+            }
+        },
+        "spider.StorageDriverKind": {
+            "type": "string",
+            "enum": [
+                "Block"
+            ],
+            "x-enum-comments": {
+                "StorageDriverBlock": "block storage, ReadWriteOnce (e.g., EBS, PD, Azure Disk)"
+            },
+            "x-enum-descriptions": [
+                "block storage, ReadWriteOnce (e.g., EBS, PD, Azure Disk)"
+            ],
+            "x-enum-varnames": [
+                "StorageDriverBlock"
+            ]
+        },
+        "spider.StorageDriverManagementMode": {
+            "type": "string",
+            "enum": [
+                "Addon",
+                "BuiltIn",
+                "NotSupported"
+            ],
+            "x-enum-comments": {
+                "StorageDriverAddon": "can be enabled and disabled through the CSP API",
+                "StorageDriverBuiltIn": "always enabled; the CSP API cannot disable it",
+                "StorageDriverNotSupported": "the CSP offers no driver of this kind"
+            },
+            "x-enum-descriptions": [
+                "can be enabled and disabled through the CSP API",
+                "always enabled; the CSP API cannot disable it",
+                "the CSP offers no driver of this kind"
+            ],
+            "x-enum-varnames": [
+                "StorageDriverAddon",
+                "StorageDriverBuiltIn",
+                "StorageDriverNotSupported"
+            ]
+        },
+        "spider.StorageDriverStatus": {
+            "type": "string",
+            "enum": [
+                "Enabled",
+                "Disabled",
+                "Updating",
+                "Failed",
+                "Unknown"
+            ],
+            "x-enum-varnames": [
+                "StorageDriverEnabled",
+                "StorageDriverDisabled",
+                "StorageDriverUpdating",
+                "StorageDriverFailed",
+                "StorageDriverUnknown"
+            ]
         },
         "spider.StorageSizeRange": {
             "type": "object",
@@ -17774,6 +18841,25 @@
                 }
             }
         },
+        "spider.CredentialValidateRequest": {
+            "type": "object",
+            "required": [
+                "KeyValueInfoList",
+                "ProviderName"
+            ],
+            "properties": {
+                "KeyValueInfoList": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/spider.KeyValue"
+                    }
+                },
+                "ProviderName": {
+                    "type": "string",
+                    "example": "AWS"
+                }
+            }
+        },
         "spider.DBSpecListResponse": {
             "type": "object",
             "required": [
@@ -17784,6 +18870,184 @@
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/spider.DBSpecInfo"
+                    }
+                }
+            }
+        },
+        "spider.DNSRecordAddRequest": {
+            "type": "object",
+            "required": [
+                "ConnectionName",
+                "ReqInfo"
+            ],
+            "properties": {
+                "ConnectionName": {
+                    "type": "string",
+                    "example": "aws-connection"
+                },
+                "ReqInfo": {
+                    "type": "object",
+                    "required": [
+                        "Host",
+                        "Name",
+                        "Type",
+                        "Value"
+                    ],
+                    "properties": {
+                        "Host": {
+                            "type": "string",
+                            "example": "www.example.com"
+                        },
+                        "Name": {
+                            "type": "string",
+                            "example": "my-a-record"
+                        },
+                        "TTL": {
+                            "type": "integer",
+                            "example": 300
+                        },
+                        "Type": {
+                            "type": "string",
+                            "example": "A"
+                        },
+                        "Value": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "example": [
+                                "203.0.113.10"
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "spider.DNSRecordChangeRequest": {
+            "type": "object",
+            "required": [
+                "ConnectionName",
+                "ReqInfo"
+            ],
+            "properties": {
+                "ConnectionName": {
+                    "type": "string",
+                    "example": "aws-connection"
+                },
+                "ReqInfo": {
+                    "type": "object",
+                    "required": [
+                        "Host",
+                        "Type",
+                        "Value"
+                    ],
+                    "properties": {
+                        "Host": {
+                            "type": "string",
+                            "example": "www.example.com"
+                        },
+                        "TTL": {
+                            "type": "integer",
+                            "example": 300
+                        },
+                        "Type": {
+                            "type": "string",
+                            "example": "A"
+                        },
+                        "Value": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "example": [
+                                "203.0.113.20"
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "spider.DNSZoneCreateRequest": {
+            "type": "object",
+            "required": [
+                "ConnectionName",
+                "ReqInfo"
+            ],
+            "properties": {
+                "ConnectionName": {
+                    "type": "string",
+                    "example": "aws-connection"
+                },
+                "IDTransformMode": {
+                    "description": "ON: transform CSP ID, OFF: no-transform CSP ID",
+                    "type": "string",
+                    "example": "ON"
+                },
+                "ReqInfo": {
+                    "type": "object",
+                    "required": [
+                        "DomainName",
+                        "Name"
+                    ],
+                    "properties": {
+                        "DomainName": {
+                            "type": "string",
+                            "example": "example.com"
+                        },
+                        "Name": {
+                            "type": "string",
+                            "example": "my-zone"
+                        },
+                        "TagList": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/spider.KeyValue"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "spider.DNSZoneListResponse": {
+            "type": "object",
+            "required": [
+                "dnszone"
+            ],
+            "properties": {
+                "dnszone": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/spider.DNSZoneInfo"
+                    }
+                }
+            }
+        },
+        "spider.DNSZoneRegisterRequest": {
+            "type": "object",
+            "required": [
+                "ConnectionName",
+                "ReqInfo"
+            ],
+            "properties": {
+                "ConnectionName": {
+                    "type": "string",
+                    "example": "aws-connection"
+                },
+                "ReqInfo": {
+                    "type": "object",
+                    "required": [
+                        "CSPId",
+                        "Name"
+                    ],
+                    "properties": {
+                        "CSPId": {
+                            "type": "string",
+                            "example": "/hostedzone/Z1234567890ABC"
+                        },
+                        "Name": {
+                            "type": "string",
+                            "example": "my-zone"
+                        }
                     }
                 }
             }
@@ -17978,6 +19242,10 @@
                     "type": "boolean"
                 },
                 "diskHandler": {
+                    "description": "support: true, do not support: false",
+                    "type": "boolean"
+                },
+                "dnshandler": {
                     "description": "support: true, do not support: false",
                     "type": "boolean"
                 },
@@ -19410,7 +20678,7 @@
                             "default": false
                         },
                         "NHNAutoOpenDBSecurityGroup": {
-                            "description": "NHNAutoOpenDBSecurityGroup (NHN Cloud only): requires PublicAccess=true.\nWhen true, CB-Spider auto-creates and attaches a fully-open (0.0.0.0/0)\nNHN Cloud RDS DB Security Group, and deletes it automatically when the\ninstance is deleted. Ignored by every other CSP. NHN Cloud RDBMS does\nnot use SecurityGroupNames at all (see NHNAutoOpenDBSecurityGroup\ninstead); if this flag is false (default), create and attach a DB\nSecurity Group yourself via the NHN Cloud console/API for external\nSQL access.",
+                            "description": "NHNAutoOpenDBSecurityGroup (NHN Cloud only): when true, CB-Spider\nauto-creates and attaches a fully-open (0.0.0.0/0) NHN Cloud RDS\nDB Security Group, and deletes it automatically when the instance\nis deleted. Works regardless of PublicAccess. Ignored by every\nother CSP. NHN Cloud RDBMS does not use SecurityGroupNames at all\n(see NHNAutoOpenDBSecurityGroup instead); if this flag is false\n(default), create and attach a DB Security Group yourself via the\nNHN Cloud console/API for external SQL access.",
                             "type": "boolean",
                             "default": false
                         },
@@ -20086,6 +21354,51 @@
                 "message": {
                     "type": "string",
                     "example": "Any message"
+                }
+            }
+        },
+        "spider.StorageDriverEnableRequest": {
+            "type": "object",
+            "required": [
+                "ConnectionName",
+                "ReqInfo"
+            ],
+            "properties": {
+                "ConnectionName": {
+                    "type": "string",
+                    "example": "aws-connection"
+                },
+                "ReqInfo": {
+                    "type": "object",
+                    "required": [
+                        "Kind"
+                    ],
+                    "properties": {
+                        "Kind": {
+                            "description": "only Block is supported",
+                            "type": "string",
+                            "example": "Block"
+                        },
+                        "Version": {
+                            "description": "CSP default version if empty",
+                            "type": "string",
+                            "example": "v1.37.0-eksbuild.1"
+                        }
+                    }
+                }
+            }
+        },
+        "spider.StorageDriverListResponse": {
+            "type": "object",
+            "required": [
+                "storagedriver"
+            ],
+            "properties": {
+                "storagedriver": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/spider.StorageDriverInfo"
+                    }
                 }
             }
         },

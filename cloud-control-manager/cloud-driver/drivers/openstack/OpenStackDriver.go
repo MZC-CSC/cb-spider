@@ -71,11 +71,31 @@ func (OpenStackDriver) GetDriverCapability() idrv.DriverCapabilityInfo {
 	drvCapabilityInfo.RDBMSMariaDBHandler = true
 	drvCapabilityInfo.RDBMSPostgreSQLHandler = false // implemented but not yet validated
 	drvCapabilityInfo.PublicIPHandler = true
+	drvCapabilityInfo.DNSHandler = true
 
 	return drvCapabilityInfo
 }
 
 // modifiled by powerkim, 2019.07.29.
+// ValidateCredential checks the credential by issuing a Keystone token.
+func (driver *OpenStackDriver) ValidateCredential(credentialInfo idrv.CredentialInfo) error {
+	authOpts := gophercloud.AuthOptions{
+		IdentityEndpoint: credentialInfo.IdentityEndpoint,
+		Username:         credentialInfo.Username,
+		Password:         credentialInfo.Password,
+		DomainName:       credentialInfo.DomainName,
+		TenantID:         credentialInfo.ProjectID,
+	}
+	provider, err := openstack.NewClient(authOpts.IdentityEndpoint)
+	if err != nil {
+		return err
+	}
+	provider.HTTPClient = http.Client{
+		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
+	}
+	return openstack.Authenticate(context.Background(), provider, authOpts)
+}
+
 func (driver *OpenStackDriver) ConnectCloud(connectionInfo idrv.ConnectionInfo) (icon.CloudConnection, error) {
 	// 1. get info of credential and region for Test A Cloud from connectionInfo.
 	// 2. create a client object(or service  object) of Test A Cloud with credential info.
@@ -203,6 +223,15 @@ func clientCreator(connInfo idrv.ConnectionInfo) (icon.CloudConnection, error) {
 	if err != nil {
 		// Trove may not be available in all OpenStack deployments; log and continue
 		fmt.Printf("Warning: failed to create Trove DB client: %v\n", err)
+	}
+
+	// Designate (DNS-as-a-Service) client - optional, some deployments may not have Designate
+	iConn.DNSClient, err = openstack.NewDNSV2(provider, gophercloud.EndpointOpts{
+		Region: connInfo.RegionInfo.Region,
+	})
+	if err != nil {
+		cblogger.Warnf("Failed to initialize DNS(Designate) client. DNS features will be unavailable: %v", err)
+		iConn.DNSClient = nil
 	}
 
 	return &iConn, nil

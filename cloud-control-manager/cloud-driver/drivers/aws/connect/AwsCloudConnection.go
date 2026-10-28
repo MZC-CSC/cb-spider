@@ -30,6 +30,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/elbv2"
 	"github.com/aws/aws-sdk-go/service/pricing"
 	"github.com/aws/aws-sdk-go/service/rds"
+	"github.com/aws/aws-sdk-go/service/route53"
 	"github.com/aws/aws-sdk-go/service/servicequotas"
 	"github.com/aws/aws-sdk-go/service/sts"
 
@@ -79,6 +80,7 @@ type AwsCloudConnection struct {
 	FileSystemClient    *efs.EFS
 	ServiceQuotasClient *servicequotas.ServiceQuotas
 	RDSClient           *rds.RDS
+	Route53Client       *route53.Route53
 }
 
 var cblogger *logrus.Logger
@@ -204,7 +206,7 @@ func (cloudConn *AwsCloudConnection) CreateClusterHandler() (irs.ClusterHandler,
 	if cloudConn.AutoScalingClient == nil {
 		cblogger.Info("cloudConn.AutoScalingClient is nil")
 	}
-	handler := ars.AwsClusterHandler{Region: cloudConn.Region, Client: cloudConn.EKSClient, EC2Client: cloudConn.VNetworkClient, ELBClient: cloudConn.ELBClient, Iam: cloudConn.IamClient, StsClient: cloudConn.StsClient, AutoScaling: cloudConn.AutoScalingClient, TagHandler: &tagHandler}
+	handler := ars.AwsClusterHandler{Region: cloudConn.Region, CredentialInfo: cloudConn.CredentialInfo, Client: cloudConn.EKSClient, EC2Client: cloudConn.VNetworkClient, ELBClient: cloudConn.ELBClient, Iam: cloudConn.IamClient, StsClient: cloudConn.StsClient, AutoScaling: cloudConn.AutoScalingClient, TagHandler: &tagHandler}
 	return &handler, nil
 }
 
@@ -264,5 +266,10 @@ func (cloudConn *AwsCloudConnection) CreateDBSpecHandler() (irs.DBSpecHandler, e
 func (cloudConn *AwsCloudConnection) CreatePublicIPHandler() (irs.PublicIPHandler, error) {
 	tagHandler := cloudConn.CreateAwsTagHandler()
 	handler := ars.AwsPublicIPHandler{Region: cloudConn.Region, Client: cloudConn.VMClient, TagHandler: &tagHandler, CredentialInfo: cloudConn.CredentialInfo}
+	return &handler, nil
+}
+
+func (cloudConn *AwsCloudConnection) CreateDNSHandler() (irs.DNSHandler, error) {
+	handler := ars.AwsDNSHandler{Region: cloudConn.Region, Client: cloudConn.Route53Client}
 	return &handler, nil
 }

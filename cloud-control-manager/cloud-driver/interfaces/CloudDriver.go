@@ -43,6 +43,7 @@ type DriverCapabilityInfo struct {
 	RDBMSPostgreSQLHandler bool // support: true, do not support: false
 	PublicIPHandler        bool // support: true, do not support: false
 	NICHandler             bool // support: true, do not support: false
+	DNSHandler             bool // support: true, do not support: false
 
 	TagHandler bool // support: true, do not support: false
 	// ex) {ires.VPC, ires.SUBNET, ires.SG, ires.KEY, ires.VM, ires.NLB, ires.DISK, ires.MYIMAGE, ires.CLUSTER}
@@ -93,6 +94,9 @@ type CredentialInfo struct {
 	RDSSecretAccessKey string // RDS Secret Access Key
 	RDSMySQLAppKey     string // RDS MySQL-specific AppKey (e.g., NHN Cloud RDS for MySQL)
 	RDSMariaDBAppKey   string // RDS MariaDB-specific AppKey (e.g., NHN Cloud RDS for MariaDB; falls back to RDSMySQLAppKey if empty)
+
+	//----- DNS Access Info
+	CISInstanceCRN string // Ibm CIS(Cloud Internet Services) instance CRN, required for Public DNS(DNSHandler)
 }
 
 type RegionInfo struct {
@@ -111,5 +115,10 @@ type CloudDriver interface {
 	GetDriverCapability() DriverCapabilityInfo
 
 	ConnectCloud(connectionInfo ConnectionInfo) (icon.CloudConnection, error)
+
+	// ValidateCredential checks whether the credential can be authenticated by the CSP,
+	// without region information and without storing anything.
+	// Use a lightweight authentication API that needs no extra permission if possible.
+	ValidateCredential(credentialInfo CredentialInfo) error
 	//ConnectNetworkCloud(connectionInfo ConnectionInfo) (icon.CloudConnection, error)
 }
