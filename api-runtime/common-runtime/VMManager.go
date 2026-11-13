@@ -609,6 +609,7 @@ func StartVM(connectionName string, rsType string, reqInfo cres.VMReqInfo, IDTra
 		//	"resources.IID:NameId",
 		"resources.VMReqInfo:VMUserId",     // because can be set without VM User
 		"resources.VMReqInfo:VMUserPasswd", // because can be set without VM PW
+		"resources.VMReqInfo:UserData",     // optional; empty means the driver's default account setup is used
 	}
 
 	err = ValidateStruct(reqInfo, emptyPermissionList)
@@ -1129,6 +1130,7 @@ func cloneReqInfoWithDriverIID(ConnectionName string, reqInfo cres.VMReqInfo) (c
 
 		VMUserId:     reqInfo.VMUserId,
 		VMUserPasswd: reqInfo.VMUserPasswd,
+		UserData:     reqInfo.UserData,
 
 		AssignPublicIP: reqInfo.AssignPublicIP,
 
